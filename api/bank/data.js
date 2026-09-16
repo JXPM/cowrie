@@ -1,13 +1,19 @@
 const { eb, handler } = require("../../lib/enable");
 
+const SKIP = /^(booking_date|value_date|transaction_date|entry_reference|transaction_id|status|credit_debit_indicator|currency|amount|iban|bban|bic|other|currency_exchange|balance_after_transaction)$/;
+// Concatène tous les champs texte utiles (les banques rangent le libellé à des endroits différents).
 function txText(t) {
-  const parts = [];
-  if (t.creditor && t.creditor.name) parts.push(t.creditor.name);
-  if (t.debtor && t.debtor.name) parts.push(t.debtor.name);
-  if (Array.isArray(t.remittance_information)) parts.push(t.remittance_information.join(" "));
-  else if (t.remittance_information) parts.push(String(t.remittance_information));
-  if (t.note) parts.push(t.note);
-  return parts.filter(Boolean).join(" · ").replace(/\s+/g, " ").trim();
+  const seen = new Set(), parts = [];
+  function walk(v, key, depth) {
+    if (v == null || depth > 3) return;
+    if (typeof v === "string") { const s = v.trim(); if (s && !SKIP.test(key) && !seen.has(s)) { seen.add(s); parts.push(s); } return; }
+    if (Array.isArray(v)) return v.forEach((x) => walk(x, key, depth + 1));
+    if (typeof v === "object") Object.keys(v).forEach((k) => { if (!SKIP.test(k)) walk(v[k], k, depth + 1); });
+  }
+  ["creditor", "debtor", "remittance_information", "remittance_information_unstructured", "remittance_information_structured",
+   "additional_information", "note", "merchant", "bank_transaction_code", "creditor_name", "debtor_name", "purpose_code"]
+    .forEach((k) => walk(t[k], k, 0));
+  return parts.join(" · ").replace(/\s+/g, " ").trim();
 }
 
 function pickBalance(balances) {

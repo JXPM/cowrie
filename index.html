@@ -527,20 +527,25 @@ input{font-family:inherit; color:inherit}
     var all=[]; (bank.data.accounts||[]).forEach(function(a){ (a.transactions||[]).forEach(function(t){ if(monthOf(t.date)===monthKey)all.push(t); }); });
     all.sort(function(a,b){ return (b.date||"").localeCompare(a.date||""); }); return all;
   }
+  // 1) mot-clé du libellé (ou mot-clé appris) présent dans la transaction ; 2) sinon, même montant au centime près.
   function matchLine(line,txs){
-    var ws=line.match?words(line.match):words(line.label); if(!ws.length)return null;
-    var cands=txs.filter(function(t){ if(t.amount>=0||t.pending)return false; var n=norm(t.text); return ws.some(function(w){ return n.indexOf(w)>=0; }); });
-    if(!cands.length)return null;
-    var target=num(line.amount);
-    cands.sort(function(a,b){ return Math.abs(Math.abs(a.amount)-target)-Math.abs(Math.abs(b.amount)-target); });
-    return cands[0];
+    var debits=txs.filter(function(t){ return t.amount<0&&!t.pending; }), target=num(line.amount);
+    var ws=line.match?words(line.match):words(line.label);
+    var cands=ws.length?debits.filter(function(t){ var n=norm(t.text); return ws.some(function(w){ return n.indexOf(w)>=0; }); }):[];
+    if(cands.length){ cands.sort(function(a,b){ return Math.abs(Math.abs(a.amount)-target)-Math.abs(Math.abs(b.amount)-target); }); return cands[0]; }
+    if(target>0){ var same=debits.filter(function(t){ return Math.abs(Math.abs(t.amount)-target)<0.005; }); if(same.length===1)return same[0]; if(same.length>1)return same[same.length-1]; }
+    return null;
   }
   // Coche automatiquement les dépenses fixes retrouvées dans les transactions du mois actif (ne décoche jamais).
   function reconcile(){
     var st=App.state(), mo=App.month(), txs=txsOf(st.activeMonth); if(!txs.length)return false;
     var used={}, changed=false;
     (mo.fixed||[]).forEach(function(l){ if(l.paidTx)used[l.paidTx]=1; });
-    (mo.fixed||[]).forEach(function(l){ if(l.paid)return; var t=matchLine(l,txs.filter(function(x){ return !used[x.id]; })); if(t){ l.paid=true; l.paidTx=t.id; used[t.id]=1; changed=true; } });
+    [true,false].forEach(function(byWord){
+      (mo.fixed||[]).forEach(function(l){ if(l.paid)return; var free=txs.filter(function(x){ return !used[x.id]; });
+        var t=byWord?matchLine(l,free.filter(function(x){ var ws=l.match?words(l.match):words(l.label); var n=norm(x.text); return ws.some(function(w){ return n.indexOf(w)>=0; }); })):matchLine(l,free);
+        if(t){ l.paid=true; l.paidTx=t.id; used[t.id]=1; changed=true; } });
+    });
     if(changed)App.touched(); return changed;
   }
 
