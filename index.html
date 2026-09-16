@@ -151,6 +151,45 @@ input{font-family:inherit; color:inherit}
 .svtot{display:flex; justify-content:space-between; margin-top:12px; padding-top:10px; border-top:1px solid var(--line-2); font-size:13.5px}
 .svtot b{font-weight:600}
 
+/* bank */
+.bk-hd{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap}
+.bk-hd h3{font-size:14.5px}
+.bk-st{font-size:12px; color:var(--text-3)}
+.bk-st.ok{color:var(--green)} .bk-st.err{color:var(--red)}
+.btn{border:1px solid var(--line); background:var(--card); color:var(--text); font-size:13px; font-weight:500; padding:7px 12px; border-radius:8px}
+.btn:hover{background:var(--field)}
+.btn.pri{background:var(--text); color:#fff; border-color:var(--text)}
+.btn.pri:hover{background:#000}
+.btn:disabled{opacity:.5; cursor:default}
+.bk-acts{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px}
+.bk-acc{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-top:1px solid var(--line-2); font-size:13.5px}
+.bk-acc:first-child{border-top:none}
+.bk-acc .nm{font-weight:500} .bk-acc .ib{font-size:11.5px; color:var(--text-3); font-variant-numeric:tabular-nums}
+.bk-acc .bal{font-weight:600; font-variant-numeric:tabular-nums}
+.bk-search{width:100%; border:1px solid var(--line); border-radius:8px; padding:9px 12px; font-size:14px; background:var(--card); margin:10px 0}
+.bk-search:focus{outline:none; border-color:var(--text-3)}
+.bk-list{max-height:280px; overflow:auto; border:1px solid var(--line); border-radius:8px}
+.bk-list button{display:flex; align-items:center; gap:10px; width:100%; text-align:left; border:none; border-top:1px solid var(--line-2); background:transparent; padding:9px 12px; font-size:13.5px}
+.bk-list button:first-child{border-top:none}
+.bk-list button:hover{background:var(--field)}
+.bk-list img{width:22px; height:22px; border-radius:5px; object-fit:contain; background:#fff; flex:none}
+.pw{display:flex; gap:8px; margin-top:10px}
+.pw input{flex:1; border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-size:14px}
+.note{font-size:12.5px; color:var(--text-3); line-height:1.5; margin-top:8px}
+.tx{display:flex; align-items:center; gap:10px; padding:7px 0; border-top:1px solid var(--line-2); font-size:13px}
+.tx:first-child{border-top:none}
+.tx .dt{color:var(--text-3); font-variant-numeric:tabular-nums; flex:none; width:38px; font-size:12px}
+.tx .tt{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.tx .tt .lk{display:block; font-size:11px; color:var(--green)}
+.tx .am{font-weight:600; font-variant-numeric:tabular-nums; flex:none}
+.tx .am.in{color:var(--green)}
+.tx.pend{opacity:.6}
+.tx select{max-width:34px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--text-3); font-size:12px; padding:3px 2px; flex:none}
+.tx select.set{color:var(--green); border-color:var(--green-bg); background:var(--green-bg)}
+.txsum{display:flex; gap:20px; flex-wrap:wrap; font-size:12.5px; color:var(--text-3); margin-bottom:10px}
+.txsum b{color:var(--text); font-weight:600}
+.tag{display:inline-block; font-size:10px; font-weight:600; letter-spacing:.03em; text-transform:uppercase; color:var(--green); background:var(--green-bg); padding:1px 5px; border-radius:4px; margin-left:4px; vertical-align:middle}
+
 /* settings */
 .set{display:flex; flex-wrap:wrap; gap:12px 26px; align-items:center; color:var(--text-2); font-size:13.5px}
 .set .g{display:flex; align-items:center; gap:8px}
@@ -183,7 +222,18 @@ input{font-family:inherit; color:inherit}
     <div class="leg" id="leg"></div>
   </div>
 
+  <div class="card" id="bank">
+    <div class="bk-hd"><h3>Banque</h3><span class="bk-st" id="bkSt"></span></div>
+    <div id="bkBody"></div>
+  </div>
+
   <div class="ledger" id="ledger" style="margin-top:14px"></div>
+
+  <div class="card" id="txCard" hidden>
+    <div class="thd"><h3 id="txTitle">Transactions</h3><span class="tm" id="txMeta"></span></div>
+    <div class="txsum" id="txSum"></div>
+    <div id="txList"></div>
+  </div>
 
   <div class="card">
     <div class="cap">Objectifs d'épargne</div>
@@ -296,6 +346,7 @@ input{font-family:inherit; color:inherit}
           html+='<div class="r'+(sec.paid&&l.paid?" paid":"")+'" data-id="'+l.id+'">'
             +(sec.paid?'<input type="checkbox" class="chk" data-field="paid" aria-label="Payé"'+(l.paid?' checked':'')+'>':'')
             +'<input class="lbl" data-field="label" value="'+esc(l.label)+'">'
+            +(sec.paid&&l.paid&&l.paidTx?'<span class="tag" title="Rapproché avec une transaction bancaire">banque</span>':'')
             +'<span class="aw"><input class="amt" data-field="amount" inputmode="decimal" value="'+fmtIn(l.amount)+'"><span class="e">€</span></span>'
             +'<button class="x" data-act="del" aria-label="Supprimer">×</button></div>';
         }
@@ -341,6 +392,7 @@ input{font-family:inherit; color:inherit}
     document.getElementById("goals").innerHTML=any?g:'<div class="empty">Ajoute un objectif à une enveloppe pour suivre ta progression.</div>';
     renderSavingsTrack();
     renderHistory();
+    if(window.Bank)Bank.renderTx();
   }
 
   /* suivi de l'épargne : solde « déjà » de chaque enveloppe, mois par mois */
@@ -418,7 +470,7 @@ input{font-family:inherit; color:inherit}
     var row=el.closest("[data-id]"),cat=el.closest("[data-cat]"); if(!row||!cat)return;
     var item=m()[cat.getAttribute("data-cat")].filter(function(x){return x.id===row.getAttribute("data-id");})[0]; if(!item)return;
     if(f==="label")item.label=el.value;
-    else if(f==="paid"){ item.paid=el.checked; row.classList.toggle("paid",el.checked); }
+    else if(f==="paid"){ item.paid=el.checked; if(!el.checked)delete item.paidTx; row.classList.toggle("paid",el.checked); }
     else item[f]=num(el.value);
     touched(); renderDerived(); });
   L.addEventListener("change",function(e){ var f=e.target.getAttribute("data-field"); if(f&&f!=="label"&&f!=="paid")e.target.value=fmtIn(num(e.target.value)); });
@@ -434,7 +486,7 @@ input{font-family:inherit; color:inherit}
 
   function go(delta){ var t=shiftKey(state.activeMonth,delta);
     if(!state.months[t]){ var copy=JSON.parse(JSON.stringify(m())); (copy.fixed||[]).forEach(function(l){ l.paid=false; }); state.months[t]=copy; }
-    state.activeMonth=t; touched(); renderAll(); }
+    state.activeMonth=t; touched(); renderAll(); if(window.Bank)Bank.reconcile(); }
   document.getElementById("prevM").addEventListener("click",function(){go(-1);});
   document.getElementById("nextM").addEventListener("click",function(){go(1);});
 
@@ -442,6 +494,165 @@ input{font-family:inherit; color:inherit}
   if(!state.months||!state.months[state.activeMonth])state=defaultState();
   if(!state.settings)state.settings={red:0,green:100};
   renderAll();
+  window.App={ state:function(){return state;}, month:m, touched:touched, renderLedger:renderLedger, renderDerived:renderDerived, esc:esc, euro:euro, euro0:euro0, num:num, MO3:MO3 };
+})();
+</script>
+<script>
+/* ---- Banque (Enable Banking via /api/bank/*) ---- */
+(function(){
+  "use strict";
+  var LS_BANK="cowrie-bank", LS_KEY="cowrie-key", REFRESH_MS=6*3600*1000;
+  var bank=load(), banks=null, busy=false, msg="";
+  function load(){ try{ var r=localStorage.getItem(LS_BANK); return r?JSON.parse(r):null; }catch(e){ return null; } }
+  function save(){ try{ if(bank)localStorage.setItem(LS_BANK,JSON.stringify(bank)); else localStorage.removeItem(LS_BANK); }catch(e){} }
+  function key(){ try{ return localStorage.getItem(LS_KEY)||""; }catch(e){ return ""; } }
+  function setKey(k){ try{ if(k)localStorage.setItem(LS_KEY,k); else localStorage.removeItem(LS_KEY); }catch(e){} }
+  function $(id){ return document.getElementById(id); }
+  var esc=App.esc, euro=App.euro, num=App.num;
+
+  function api(method,path,body){
+    return fetch(path,{method:method,headers:{"Content-Type":"application/json","x-app-key":key()},body:body?JSON.stringify(body):undefined})
+      .then(function(r){ return r.text().then(function(t){ var d={}; try{ d=t?JSON.parse(t):{}; }catch(e){ d={error:t}; }
+        if(r.status===401){ setKey(""); throw new Error("Mot de passe incorrect"); }
+        if(!r.ok) throw new Error(d.error||("Erreur "+r.status)); return d; }); });
+  }
+
+  /* --- normalisation / rapprochement --- */
+  var STOP={"les":1,"des":1,"une":1,"pour":1,"avec":1,"remb":1,"forfait":1,"forfaits":1,"abonnement":1,"mensuel":1,"nouvelle":1,"ligne":1,"prlv":1,"sepa":1,"carte":1,"paiement":1,"cb":1};
+  function norm(s){ return String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ").trim(); }
+  function words(s){ return norm(s).split(" ").filter(function(w){ return w.length>=3&&!STOP[w]; }); }
+  function monthOf(d){ return d?d.slice(0,7):""; }
+  function txsOf(monthKey){
+    if(!bank||!bank.data)return [];
+    var all=[]; (bank.data.accounts||[]).forEach(function(a){ (a.transactions||[]).forEach(function(t){ if(monthOf(t.date)===monthKey)all.push(t); }); });
+    all.sort(function(a,b){ return (b.date||"").localeCompare(a.date||""); }); return all;
+  }
+  function matchLine(line,txs){
+    var ws=line.match?words(line.match):words(line.label); if(!ws.length)return null;
+    var cands=txs.filter(function(t){ if(t.amount>=0||t.pending)return false; var n=norm(t.text); return ws.some(function(w){ return n.indexOf(w)>=0; }); });
+    if(!cands.length)return null;
+    var target=num(line.amount);
+    cands.sort(function(a,b){ return Math.abs(Math.abs(a.amount)-target)-Math.abs(Math.abs(b.amount)-target); });
+    return cands[0];
+  }
+  // Coche automatiquement les dépenses fixes retrouvées dans les transactions du mois actif (ne décoche jamais).
+  function reconcile(){
+    var st=App.state(), mo=App.month(), txs=txsOf(st.activeMonth); if(!txs.length)return false;
+    var used={}, changed=false;
+    (mo.fixed||[]).forEach(function(l){ if(l.paidTx)used[l.paidTx]=1; });
+    (mo.fixed||[]).forEach(function(l){ if(l.paid)return; var t=matchLine(l,txs.filter(function(x){ return !used[x.id]; })); if(t){ l.paid=true; l.paidTx=t.id; used[t.id]=1; changed=true; } });
+    if(changed)App.touched(); return changed;
+  }
+
+  /* --- rendu --- */
+  function status(txt,cls){ var el=$("bkSt"); el.textContent=txt||""; el.className="bk-st"+(cls?" "+cls:""); }
+  function ago(iso){ var m=Math.round((Date.now()-new Date(iso).getTime())/60000); if(m<2)return "à l'instant"; if(m<60)return "il y a "+m+" min"; var h=Math.round(m/60); if(h<48)return "il y a "+h+" h"; return "il y a "+Math.round(h/24)+" j"; }
+  function render(){
+    var b=$("bkBody"), h="";
+    if(!key()){
+      h='<div class="note">Entre le mot de passe de l\'app pour activer la connexion bancaire.</div>'
+        +'<form class="pw" id="pwForm"><input type="password" id="pwIn" placeholder="Mot de passe" autocomplete="current-password"><button class="btn pri" type="submit">OK</button></form>';
+      status("");
+    } else if(!bank){
+      h='<div class="note">Relie ton compte bancaire : tes dépenses fixes seront cochées automatiquement et tu verras tes transactions du mois. Accès en lecture seule, valable 90 jours.</div>';
+      if(!banks) h+='<div class="bk-acts"><button class="btn pri" id="bkPick">Connecter ma banque</button></div>';
+      else h+='<input class="bk-search" id="bkQ" placeholder="Rechercher ta banque…" autocomplete="off"><div class="bk-list" id="bkList"></div>';
+      status(msg, msg?"err":"");
+    } else {
+      var d=bank.data;
+      (bank.accounts||[]).forEach(function(a){
+        var acc=d&&(d.accounts||[]).filter(function(x){return x.uid===a.uid;})[0];
+        h+='<div class="bk-acc"><div><div class="nm">'+esc(a.name)+'</div>'+(a.iban?'<div class="ib">'+esc(a.iban.replace(/(.{4})/g,"$1 ").trim())+'</div>':'')+'</div>'
+          +'<div class="bal num">'+(acc&&acc.balance?euro(acc.balance.amount):"—")+'</div></div>';
+      });
+      var exp=bank.valid_until?new Date(bank.valid_until):null, daysLeft=exp?Math.round((exp-Date.now())/86400000):null;
+      h+='<div class="bk-acts"><button class="btn" id="bkRefresh"'+(busy?' disabled':'')+'>'+(busy?"Actualisation…":"Actualiser")+'</button><button class="btn" id="bkOut">Déconnecter</button></div>';
+      h+='<div class="note">'+(d?"Actualisé "+ago(d.fetched_at)+". ":"")+(daysLeft!=null?"Consentement valable encore "+daysLeft+" j. ":"")+"Les banques limitent à quelques actualisations par jour.</div>";
+      status(msg||(d?"Connectée":""), msg?"err":"ok");
+    }
+    b.innerHTML=h;
+    if($("pwForm"))$("pwForm").addEventListener("submit",function(e){ e.preventDefault(); setKey($("pwIn").value.trim()); msg=""; render(); });
+    if($("bkPick"))$("bkPick").addEventListener("click",loadBanks);
+    if($("bkQ")){ $("bkQ").addEventListener("input",renderBankList); renderBankList(); $("bkQ").focus(); }
+    if($("bkRefresh"))$("bkRefresh").addEventListener("click",function(){ refresh(true); });
+    if($("bkOut"))$("bkOut").addEventListener("click",disconnect);
+    renderTx();
+  }
+  function renderBankList(){
+    var q=norm($("bkQ").value), list=banks.filter(function(b){ return !q||norm(b.name).indexOf(q)>=0; }).slice(0,60), h="";
+    list.forEach(function(b,i){ h+='<button data-i="'+banks.indexOf(b)+'">'+(b.logo?'<img src="'+esc(b.logo)+'" alt="">':'')+'<span>'+esc(b.name)+'</span></button>'; });
+    $("bkList").innerHTML=h||'<div class="empty" style="padding:10px 12px">Aucune banque trouvée.</div>';
+    $("bkList").querySelectorAll("button").forEach(function(btn){ btn.addEventListener("click",function(){ connect(banks[+btn.getAttribute("data-i")]); }); });
+  }
+  function renderTx(){
+    var card=$("txCard"); if(!bank||!bank.data){ card.hidden=true; return; }
+    var st=App.state(), mo=App.month(), k=st.activeMonth, txs=txsOf(k);
+    card.hidden=false;
+    $("txTitle").textContent="Transactions de "+App.MO3[(+k.split("-")[1])-1]+" "+k.split("-")[0];
+    $("txMeta").textContent=txs.length+" opération"+(txs.length>1?"s":"");
+    var out=0, inn=0; txs.forEach(function(t){ if(t.pending)return; if(t.amount<0)out+=-t.amount; else inn+=t.amount; });
+    $("txSum").innerHTML='<span>Sorties <b class="num">'+euro(out)+'</b></span><span>Entrées <b class="num">'+euro(inn)+'</b></span>';
+    if(!txs.length){ $("txList").innerHTML='<div class="empty">Aucune transaction pour ce mois dans la période récupérée ('+(bank.data.from||"")+' → '+(bank.data.to||"")+').</div>'; return; }
+    var byTx={}; (mo.fixed||[]).forEach(function(l){ if(l.paidTx)byTx[l.paidTx]=l; });
+    var opts='<option value="">→</option>'; (mo.fixed||[]).forEach(function(l){ opts+='<option value="'+l.id+'">'+esc(l.label)+'</option>'; });
+    var h="";
+    txs.forEach(function(t){
+      var l=byTx[t.id], d=t.date?t.date.slice(8,10)+"/"+t.date.slice(5,7):"";
+      h+='<div class="tx'+(t.pending?" pend":"")+'" data-tx="'+esc(t.id)+'"><span class="dt">'+d+'</span>'
+        +'<span class="tt" title="'+esc(t.text)+'">'+esc(t.text||"—")+(l?'<span class="lk">✓ '+esc(l.label)+'</span>':'')+'</span>'
+        +(t.amount<0?'<select class="'+(l?"set":"")+'" aria-label="Associer à une dépense fixe">'+opts.replace('value="'+(l?l.id:"__")+'"','value="'+(l?l.id:"__")+'" selected')+'</select>':'')
+        +'<span class="am num'+(t.amount>=0?" in":"")+'">'+(t.amount>=0?"+":"–")+"\u202F"+euro(Math.abs(t.amount))+'</span></div>';
+    });
+    $("txList").innerHTML=h;
+    $("txList").querySelectorAll("select").forEach(function(sel){ sel.addEventListener("change",function(){ link(sel.closest("[data-tx]").getAttribute("data-tx"),sel.value); }); });
+  }
+  // Association manuelle : la ligne retient un mot-clé issu de la transaction pour les mois suivants.
+  function link(txId,lineId){
+    var mo=App.month(), txs=txsOf(App.state().activeMonth), t=txs.filter(function(x){return x.id===txId;})[0];
+    (mo.fixed||[]).forEach(function(l){ if(l.paidTx===txId){ l.paid=false; delete l.paidTx; } });
+    if(lineId&&t){ var l=(mo.fixed||[]).filter(function(x){return x.id===lineId;})[0]; if(l){ l.paid=true; l.paidTx=txId; var ws=words(t.text); if(ws.length)l.match=ws.slice(0,2).join(" "); } }
+    App.touched(); App.renderLedger(); App.renderDerived();
+  }
+
+  /* --- actions --- */
+  function loadBanks(){ msg=""; status("Chargement…"); api("GET","/api/bank/banks?country=FR").then(function(list){ banks=list; render(); }).catch(function(e){ msg=e.message; render(); }); }
+  function connect(b){
+    status("Redirection vers "+b.name+"…");
+    var redirect=location.origin+"/";
+    api("POST","/api/bank/auth",{bank:b.name,country:b.country,redirect_url:redirect}).then(function(r){
+      try{ sessionStorage.setItem("cowrie-bank-state",r.state); }catch(e){}
+      location.href=r.url;
+    }).catch(function(e){ msg=e.message; render(); });
+  }
+  function finishAuth(code){
+    status("Connexion…");
+    history.replaceState(null,"",location.pathname);
+    api("POST","/api/bank/session",{code:code}).then(function(r){
+      bank={session_id:r.session_id,accounts:r.accounts,valid_until:r.valid_until,data:null}; save(); render(); refresh(true);
+    }).catch(function(e){ msg="Connexion échouée : "+e.message; render(); });
+  }
+  function refresh(force){
+    if(!bank||busy)return;
+    if(!force&&bank.data&&Date.now()-new Date(bank.data.fetched_at).getTime()<REFRESH_MS)return;
+    busy=true; msg=""; render();
+    var from=new Date(); from.setMonth(from.getMonth()-2); from.setDate(1);
+    var q="?session_id="+encodeURIComponent(bank.session_id)+"&accounts="+encodeURIComponent(bank.accounts.map(function(a){return a.uid;}).join(","))+"&from="+from.toISOString().slice(0,10);
+    api("GET","/api/bank/data"+q).then(function(d){
+      bank.data=d; save(); busy=false;
+      var errs=[]; d.accounts.forEach(function(a){ errs=errs.concat(a.errors||[]); }); if(errs.length)msg=errs[0];
+      var changed=reconcile(); render(); if(changed){ App.renderLedger(); App.renderDerived(); }
+    }).catch(function(e){ busy=false; msg=e.message; if(/session|expir|401|403/i.test(e.message)&&!bank.data){ bank=null; save(); } render(); });
+  }
+  function disconnect(){
+    if(!confirm("Déconnecter la banque ? Les cases déjà cochées restent."))return;
+    var id=bank.session_id; bank=null; save(); render();
+    api("DELETE","/api/bank/session?id="+encodeURIComponent(id)).catch(function(){});
+  }
+
+  window.Bank={ renderTx:renderTx, reconcile:function(){ if(reconcile()){ App.renderLedger(); App.renderDerived(); } } };
+  var params=new URLSearchParams(location.search);
+  if(params.get("code")){ render(); finishAuth(params.get("code")); }
+  else{ render(); if(bank){ if(reconcile()){ App.renderLedger(); App.renderDerived(); } refresh(false); } }
 })();
 </script>
 </body>
