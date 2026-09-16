@@ -2,9 +2,17 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Relevé — mon budget</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMjMxYjEzIiBzdHJva2Utd2lkdGg9IjEuNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48ZWxsaXBzZSBjeD0iMTIiIGN5PSIxMiIgcng9IjYiIHJ5PSI4LjYiLz48cGF0aCBkPSJNMTIgNS42VjE4LjQiLz48cGF0aCBkPSJNOS43IDguNiAxMiA5LjNNOS43IDExIDEyIDExTTkuNyAxMy40IDEyIDEzLjRNOS43IDE1LjggMTIgMTUuMSIvPjxwYXRoIGQ9Ik0xNC4zIDguNiAxMiA5LjNNMTQuMyAxMSAxMiAxMU0xNC4zIDEzLjQgMTIgMTMuNE0xNC4zIDE1LjggMTIgMTUuMSIvPjwvc3ZnPg==">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#e7e0d0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Cowrie">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<title>Cowrie — mon budget</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Hanken+Grotesk:wght@400;450;500;600&display=swap" rel="stylesheet">
@@ -16,22 +24,6 @@
   --tone1:#231b13; --tone2:#5a4f3f; --tone3:#8a7d68; --tone4:#c3b9a2;
   --green:#2f6b4a; --amber:#a9741a; --red:#a63b2c;
   --green-bg:#dde9df; --amber-bg:#f0e6cf; --red-bg:#f1ddd6;
-}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --paper:#12100b; --surface:#1a170f; --field:#0d0b07;
-  --ink:#efe8d8; --ink-2:#b0a794; --ink-3:#73695a;
-  --rule:#2b271d; --rule-2:#211d15;
-  --tone1:#efe8d8; --tone2:#b3a992; --tone3:#847a66; --tone4:#4e4736;
-  --green:#5cc08a; --amber:#e0ac4a; --red:#e57b68;
-  --green-bg:#152318; --amber-bg:#2a2311; --red-bg:#2c1712;
-}}
-:root[data-theme="dark"]{
-  --paper:#12100b; --surface:#1a170f; --field:#0d0b07;
-  --ink:#efe8d8; --ink-2:#b0a794; --ink-3:#73695a;
-  --rule:#2b271d; --rule-2:#211d15;
-  --tone1:#efe8d8; --tone2:#b3a992; --tone3:#847a66; --tone4:#4e4736;
-  --green:#5cc08a; --amber:#e0ac4a; --red:#e57b68;
-  --green-bg:#152318; --amber-bg:#2a2311; --red-bg:#2c1712;
 }
 *{box-sizing:border-box}
 html,body{margin:0}
@@ -61,8 +53,6 @@ input{font-family:inherit; color:inherit}
 .sy{display:inline-flex; align-items:center; gap:7px; font-size:11.5px; color:var(--ink-3); letter-spacing:.03em}
 .sy .d{width:6px; height:6px; border-radius:50%; background:var(--ink-3)}
 .sy.ok .d{background:var(--green)} .sy.local .d{background:var(--amber)}
-.tg{border:1px solid var(--rule); background:transparent; color:var(--ink); width:32px; height:32px; font-size:14px; display:grid; place-items:center}
-.tg:hover{background:var(--paper)}
 
 /* ---- verdict ---- */
 .vd{padding:30px 22px 26px; border-bottom:1px solid var(--rule);
@@ -196,7 +186,6 @@ input{font-family:inherit; color:inherit}
     <div class="brand"><span class="lmw"><svg class="lm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="12" rx="6" ry="8.6"/><path d="M12 5.6V18.4"/><path d="M9.7 8.6 12 9.3M9.7 11 12 11M9.7 13.4 12 13.4M9.7 15.8 12 15.1"/><path d="M14.3 8.6 12 9.3M14.3 11 12 11M14.3 13.4 12 13.4M14.3 15.8 12 15.1"/></svg></span><span class="b">Budget</span><span class="s" id="brandSub">relevé mensuel</span></div>
     <div class="mn"><button id="prevM" aria-label="Mois précédent">‹</button><span class="c" id="curMonth">—</span><button id="nextM" aria-label="Mois suivant">›</button></div>
     <span class="sy local" id="sync"><span class="d"></span><span id="syncTxt">…</span></span>
-    <button class="tg" id="theme" aria-label="Basculer le thème">☾</button>
   </div>
 
   <div class="vd">
@@ -238,7 +227,7 @@ input{font-family:inherit; color:inherit}
   "use strict";
   var MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
   var MO3=["janv","févr","mars","avr","mai","juin","juil","août","sept","oct","nov","déc"];
-  var LS_KEY="mon-budget-v1", LS_THEME="mon-budget-theme";
+  var LS_KEY="mon-budget-v1";
   var SECTIONS=[
     {key:"income", title:"Revenus"},
     {key:"fixed",  title:"Dépenses fixes"},
@@ -427,13 +416,6 @@ input{font-family:inherit; color:inherit}
   function go(delta){ var t=shiftKey(state.activeMonth,delta); if(!state.months[t])state.months[t]=JSON.parse(JSON.stringify(m())); state.activeMonth=t; touched(); renderAll(); }
   document.getElementById("prevM").addEventListener("click",function(){go(-1);});
   document.getElementById("nextM").addEventListener("click",function(){go(1);});
-
-  function applyTheme(t){ if(t)document.documentElement.setAttribute("data-theme",t); else document.documentElement.removeAttribute("data-theme");
-    var b=document.getElementById("theme"); if(b){ var dark=t==="dark"||(!t&&window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches); b.textContent=dark?"☀":"☾"; } }
-  (function(){ try{ var s=localStorage.getItem(LS_THEME); applyTheme(s||null); }catch(e){ applyTheme(null); } })();
-  document.getElementById("theme").addEventListener("click",function(){ var cur=document.documentElement.getAttribute("data-theme");
-    var dark=cur==="dark"||(!cur&&window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches);
-    var next=dark?"light":"dark"; applyTheme(next); try{ localStorage.setItem(LS_THEME,next); }catch(e){} });
 
   state=loadLocal()||defaultState();
   if(!state.months||!state.months[state.activeMonth])state=defaultState();
