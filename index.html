@@ -307,13 +307,22 @@ input{font-family:inherit; color:inherit}
   function touched(){ lastEdit=Date.now(); scheduleWrite(); }
 
   /* ledger */
+  function secTotal(sec,sum){ return euro(sum)+(sec.savings?' <span class="un">/ mois</span>':''); }
+  function renderSectionTotals(){
+    var mo=m();
+    SECTIONS.forEach(function(sec){
+      var el=document.querySelector('.sec[data-cat="'+sec.key+'"] .shd .t'); if(!el)return;
+      var sum=0; (mo[sec.key]||[]).forEach(function(l){ sum+=num(l.amount); });
+      el.innerHTML=secTotal(sec,sum);
+    });
+  }
   function renderLedger(){
     var mo=m(), host=document.getElementById("ledger"), html="";
     SECTIONS.forEach(function(sec){
       var items=mo[sec.key]||[], sum=0; items.forEach(function(l){ sum+=num(l.amount); });
       var neg = sec.key!=="income";
       html+='<div class="sec" data-cat="'+sec.key+'">';
-      html+='<div class="shd"><h3>'+esc(sec.title)+'</h3><span class="t'+(neg?" neg":"")+'">'+euro(sum)+(sec.savings?' <span class="un">/ mois</span>':'')+'</span></div>';
+      html+='<div class="shd"><h3>'+esc(sec.title)+'</h3><span class="t'+(neg?" neg":"")+'">'+secTotal(sec,sum)+'</span></div>';
       items.forEach(function(l){
         if(sec.savings){
           html+='<div class="sv" data-id="'+l.id+'"><div class="l1">'
@@ -336,6 +345,7 @@ input{font-family:inherit; color:inherit}
   }
 
   function renderDerived(){
+    renderSectionTotals();
     var mo=m(), t=totals(mo), st=statusFor(t.margin);
     var big=document.getElementById("marge");
     big.textContent=(t.margin>=0?"+":"–")+"\u202F"+euro(Math.abs(t.margin));
