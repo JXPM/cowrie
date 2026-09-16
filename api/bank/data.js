@@ -1,4 +1,5 @@
 const { eb, handler } = require("../../lib/enable");
+const store = require("../../lib/store");
 
 const SKIP = /^(booking_date|value_date|transaction_date|entry_reference|transaction_id|status|credit_debit_indicator|currency|amount|iban|bban|bic|other|currency_exchange|balance_after_transaction)$/;
 // Concatène tous les champs texte utiles (les banques rangent le libellé à des endroits différents).
@@ -23,14 +24,22 @@ function pickBalance(balances) {
   return list[0] || null;
 }
 
-// GET ?session_id&accounts=uid1,uid2&from=YYYY-MM-DD&to=YYYY-MM-DD
-// Renvoie solde + transactions de chaque compte (à mettre en cache côté client : quotas bancaires ~4 appels/jour/compte).
+const FRESH_MS = 6 * 3600 * 1000;
+
+// GET [?force=1] — solde + transactions des comptes de la session enregistrée.
+// Le résultat est stocké côté serveur et resservi pendant 6 h (quotas bancaires ~4 appels/jour/compte).
 module.exports = handler(async (req) => {
-  const { session_id, accounts, from, to } = req.query;
-  if (!session_id || !accounts) throw Object.assign(new Error("session_id et accounts requis"), { status: 400 });
-  const uids = String(accounts).split(",").filter(Boolean);
-  const dateTo = to || new Date().toISOString().slice(0, 10);
-  const dateFrom = from || new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+  const row = await store.get("bank");
+  if (!row) throw Object.assign(new Error("Aucune banque connectée"), { status: 404 });
+  const bank = row.v;
+  if (!req.query.force) {
+    const cached = await store.get("bankdata");
+    if (cached && Date.now() - new Date(cached.v.fetched_at).getTime() < FRESH_MS) return cached.v;
+  }
+  const uids = (bank.accounts || []).map((a) => a.uid);
+  const dateTo = new Date().toISOString().slice(0, 10);
+  const from = new Date(); from.setMonth(from.getMonth() - 2); from.setDate(1);
+  const dateFrom = from.toISOString().slice(0, 10);
 
   const out = [];
   for (const uid of uids) {
@@ -64,5 +73,14 @@ module.exports = handler(async (req) => {
     acc.transactions.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     out.push(acc);
   }
-  return { fetched_at: new Date().toISOString(), from: dateFrom, to: dateTo, accounts: out };
+  const result = { fetched_at: new Date().toISOString(), from: dateFrom, to: dateTo, accounts: out };
+  // Ne pas écraser un bon cache par un résultat entièrement en erreur (quota atteint, session expirée…).
+  const allFailed = out.length && out.every((a) => a.errors.length && !a.transactions.length);
+  if (allFailed) {
+    const cached = await store.get("bankdata");
+    if (cached) return Object.assign({}, cached.v, { warning: out[0].errors[0] });
+    throw Object.assign(new Error(out[0].errors[0]), { status: /session|expired|401|403/i.test(out[0].errors[0]) ? 401 : 502 });
+  }
+  await store.set("bankdata", result);
+  return result;
 });

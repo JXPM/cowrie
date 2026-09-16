@@ -256,7 +256,7 @@ input{font-family:inherit; color:inherit}
     <div class="g">Passe au vert dès <span class="aw"><input class="mini" id="setGreen" inputmode="decimal"><span class="e">€</span></span></div>
   </div>
 </div>
-<p class="ft">Enregistré automatiquement sur cet appareil. Chaque chiffre se recalcule en direct.</p>
+<p class="ft"><span id="syncTxt">Enregistré sur cet appareil.</span> Chaque chiffre se recalcule en direct.</p>
 
 <script>
 (function(){
@@ -302,7 +302,7 @@ input{font-family:inherit; color:inherit}
   var state=null;
   function loadLocal(){ try{ var r=localStorage.getItem(LS_KEY); return r?JSON.parse(r):null; }catch(e){ return null; } }
   function saveLocal(){ try{ localStorage.setItem(LS_KEY,JSON.stringify(state)); }catch(e){} }
-  function touched(){ saveLocal(); }
+  function touched(){ state.updatedAt=Date.now(); saveLocal(); if(window.Sync)Sync.push(); }
   function m(){ return state.months[state.activeMonth]; }
   function totals(mo){ var t={income:0,fixed:0,daily:0,savings:0,paid:0,paidCount:0}; ["income","fixed","daily","savings"].forEach(function(k){ (mo[k]||[]).forEach(function(l){ t[k]+=num(l.amount); }); });
     (mo.fixed||[]).forEach(function(l){ if(l.paid){ t.paid+=num(l.amount); t.paidCount++; } });
@@ -494,17 +494,15 @@ input{font-family:inherit; color:inherit}
   if(!state.months||!state.months[state.activeMonth])state=defaultState();
   if(!state.settings)state.settings={red:0,green:100};
   renderAll();
-  window.App={ state:function(){return state;}, month:m, touched:touched, renderLedger:renderLedger, renderDerived:renderDerived, esc:esc, euro:euro, euro0:euro0, num:num, MO3:MO3 };
+  function replaceState(next){ state=next; if(!state.months||!state.months[state.activeMonth])state.activeMonth=Object.keys(state.months).sort().pop(); if(!state.settings)state.settings={red:0,green:100}; saveLocal(); renderAll(); }
+  window.App={ state:function(){return state;}, replaceState:replaceState, month:m, touched:touched, renderLedger:renderLedger, renderDerived:renderDerived, esc:esc, euro:euro, euro0:euro0, num:num, MO3:MO3 };
 })();
 </script>
 <script>
-/* ---- Banque (Enable Banking via /api/bank/*) ---- */
+/* ---- Mot de passe partagé + synchro du budget + banque (serveur /api/*) ---- */
 (function(){
   "use strict";
-  var LS_BANK="cowrie-bank", LS_KEY="cowrie-key", REFRESH_MS=6*3600*1000;
-  var bank=load(), banks=null, busy=false, msg="";
-  function load(){ try{ var r=localStorage.getItem(LS_BANK); return r?JSON.parse(r):null; }catch(e){ return null; } }
-  function save(){ try{ if(bank)localStorage.setItem(LS_BANK,JSON.stringify(bank)); else localStorage.removeItem(LS_BANK); }catch(e){} }
+  var LS_KEY="cowrie-key";
   function key(){ try{ return localStorage.getItem(LS_KEY)||""; }catch(e){ return ""; } }
   function setKey(k){ try{ if(k)localStorage.setItem(LS_KEY,k); else localStorage.removeItem(LS_KEY); }catch(e){} }
   function $(id){ return document.getElementById(id); }
@@ -513,27 +511,49 @@ input{font-family:inherit; color:inherit}
   function api(method,path,body){
     return fetch(path,{method:method,headers:{"Content-Type":"application/json","x-app-key":key()},body:body?JSON.stringify(body):undefined})
       .then(function(r){ return r.text().then(function(t){ var d={}; try{ d=t?JSON.parse(t):{}; }catch(e){ d={error:t}; }
-        if(r.status===401){ setKey(""); throw new Error("Mot de passe incorrect"); }
+        if(r.status===401&&!/session|expir/i.test(d.error||"")){ setKey(""); render(); throw new Error("Mot de passe incorrect"); }
         if(!r.ok) throw new Error(d.error||("Erreur "+r.status)); return d; }); });
   }
 
-  /* --- normalisation / rapprochement --- */
+  /* --- synchro du budget --- */
+  var pushTimer=null, syncing=false;
+  function syncTxt(t){ var el=$("syncTxt"); if(el)el.textContent=t; }
+  function pull(){
+    if(!key())return Promise.resolve();
+    return api("GET","/api/state").then(function(r){
+      var local=App.state(), remote=r.state;
+      if(remote&&remote.months&&(!local.updatedAt||(remote.updatedAt||0)>(local.updatedAt||0))){ App.replaceState(remote); syncTxt("Synchronisé."); }
+      else if(!remote||(local.updatedAt||0)>(remote.updatedAt||0)){ return pushNow(); }
+      else syncTxt("Synchronisé.");
+    }).catch(function(e){ syncTxt("Hors ligne — enregistré sur cet appareil."); });
+  }
+  function pushNow(){
+    if(!key())return Promise.resolve();
+    syncing=true; syncTxt("Enregistrement…"); var st=App.state(); if(!st.updatedAt)st.updatedAt=Date.now();
+    return api("PUT","/api/state",{state:st}).then(function(){ syncTxt("Synchronisé."); }).catch(function(){ syncTxt("Hors ligne — enregistré sur cet appareil."); }).then(function(){ syncing=false; });
+  }
+  function push(){ if(!key())return; if(pushTimer)clearTimeout(pushTimer); pushTimer=setTimeout(pushNow,800); }
+  window.Sync={ push:push };
+  document.addEventListener("visibilitychange",function(){ if(document.visibilityState==="visible"&&!pushTimer&&!syncing){ pull().then(function(){ if(bank)refresh(false); }); } });
+
+  /* --- banque --- */
+  var bank=null, data=null, banks=null, busy=false, msg="";
   var STOP={"les":1,"des":1,"une":1,"pour":1,"avec":1,"remb":1,"forfait":1,"forfaits":1,"abonnement":1,"mensuel":1,"nouvelle":1,"ligne":1,"prlv":1,"sepa":1,"carte":1,"paiement":1,"cb":1};
-  function norm(s){ return String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ").trim(); }
+  function norm(s){ return String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ").trim(); }
   function words(s){ return norm(s).split(" ").filter(function(w){ return w.length>=3&&!STOP[w]; }); }
   function monthOf(d){ return d?d.slice(0,7):""; }
   function txsOf(monthKey){
-    if(!bank||!bank.data)return [];
-    var all=[]; (bank.data.accounts||[]).forEach(function(a){ (a.transactions||[]).forEach(function(t){ if(monthOf(t.date)===monthKey)all.push(t); }); });
+    if(!data)return [];
+    var all=[]; (data.accounts||[]).forEach(function(a){ (a.transactions||[]).forEach(function(t){ if(monthOf(t.date)===monthKey)all.push(t); }); });
     all.sort(function(a,b){ return (b.date||"").localeCompare(a.date||""); }); return all;
   }
+  function hasWord(l,t){ var ws=l.match?words(l.match):words(l.label); var n=norm(t.text); return ws.some(function(w){ return n.indexOf(w)>=0; }); }
   // 1) mot-clé du libellé (ou mot-clé appris) présent dans la transaction ; 2) sinon, même montant au centime près.
   function matchLine(line,txs){
     var debits=txs.filter(function(t){ return t.amount<0&&!t.pending; }), target=num(line.amount);
-    var ws=line.match?words(line.match):words(line.label);
-    var cands=ws.length?debits.filter(function(t){ var n=norm(t.text); return ws.some(function(w){ return n.indexOf(w)>=0; }); }):[];
+    var cands=debits.filter(function(t){ return hasWord(line,t); });
     if(cands.length){ cands.sort(function(a,b){ return Math.abs(Math.abs(a.amount)-target)-Math.abs(Math.abs(b.amount)-target); }); return cands[0]; }
-    if(target>0){ var same=debits.filter(function(t){ return Math.abs(Math.abs(t.amount)-target)<0.005; }); if(same.length===1)return same[0]; if(same.length>1)return same[same.length-1]; }
+    if(target>0){ var same=debits.filter(function(t){ return Math.abs(Math.abs(t.amount)-target)<0.005; }); if(same.length)return same[same.length-1]; }
     return null;
   }
   // Coche automatiquement les dépenses fixes retrouvées dans les transactions du mois actif (ne décoche jamais).
@@ -543,19 +563,19 @@ input{font-family:inherit; color:inherit}
     (mo.fixed||[]).forEach(function(l){ if(l.paidTx)used[l.paidTx]=1; });
     [true,false].forEach(function(byWord){
       (mo.fixed||[]).forEach(function(l){ if(l.paid)return; var free=txs.filter(function(x){ return !used[x.id]; });
-        var t=byWord?matchLine(l,free.filter(function(x){ var ws=l.match?words(l.match):words(l.label); var n=norm(x.text); return ws.some(function(w){ return n.indexOf(w)>=0; }); })):matchLine(l,free);
+        var t=matchLine(l,byWord?free.filter(function(x){ return hasWord(l,x); }):free);
         if(t){ l.paid=true; l.paidTx=t.id; used[t.id]=1; changed=true; } });
     });
     if(changed)App.touched(); return changed;
   }
+  function applyReconcile(){ if(reconcile()){ App.renderLedger(); App.renderDerived(); } }
 
-  /* --- rendu --- */
   function status(txt,cls){ var el=$("bkSt"); el.textContent=txt||""; el.className="bk-st"+(cls?" "+cls:""); }
   function ago(iso){ var m=Math.round((Date.now()-new Date(iso).getTime())/60000); if(m<2)return "à l'instant"; if(m<60)return "il y a "+m+" min"; var h=Math.round(m/60); if(h<48)return "il y a "+h+" h"; return "il y a "+Math.round(h/24)+" j"; }
   function render(){
     var b=$("bkBody"), h="";
     if(!key()){
-      h='<div class="note">Entre le mot de passe de l\'app pour activer la connexion bancaire.</div>'
+      h='<div class="note">Entre le mot de passe de l\'app : il synchronise ton budget entre tes appareils et active la banque.</div>'
         +'<form class="pw" id="pwForm"><input type="password" id="pwIn" placeholder="Mot de passe" autocomplete="current-password"><button class="btn pri" type="submit">OK</button></form>';
       status("");
     } else if(!bank){
@@ -564,19 +584,18 @@ input{font-family:inherit; color:inherit}
       else h+='<input class="bk-search" id="bkQ" placeholder="Rechercher ta banque…" autocomplete="off"><div class="bk-list" id="bkList"></div>';
       status(msg, msg?"err":"");
     } else {
-      var d=bank.data;
       (bank.accounts||[]).forEach(function(a){
-        var acc=d&&(d.accounts||[]).filter(function(x){return x.uid===a.uid;})[0];
+        var acc=data&&(data.accounts||[]).filter(function(x){return x.uid===a.uid;})[0];
         h+='<div class="bk-acc"><div><div class="nm">'+esc(a.name)+'</div>'+(a.iban?'<div class="ib">'+esc(a.iban.replace(/(.{4})/g,"$1 ").trim())+'</div>':'')+'</div>'
           +'<div class="bal num">'+(acc&&acc.balance?euro(acc.balance.amount):"—")+'</div></div>';
       });
       var exp=bank.valid_until?new Date(bank.valid_until):null, daysLeft=exp?Math.round((exp-Date.now())/86400000):null;
       h+='<div class="bk-acts"><button class="btn" id="bkRefresh"'+(busy?' disabled':'')+'>'+(busy?"Actualisation…":"Actualiser")+'</button><button class="btn" id="bkOut">Déconnecter</button></div>';
-      h+='<div class="note">'+(d?"Actualisé "+ago(d.fetched_at)+". ":"")+(daysLeft!=null?"Consentement valable encore "+daysLeft+" j. ":"")+"Les banques limitent à quelques actualisations par jour.</div>";
-      status(msg||(d?"Connectée":""), msg?"err":"ok");
+      h+='<div class="note">'+(data?"Actualisé "+ago(data.fetched_at)+". ":"")+(daysLeft!=null?"Consentement valable encore "+daysLeft+" j. ":"")+"Les banques limitent à quelques actualisations par jour.</div>";
+      status(msg||(data?"Connectée":""), msg?"err":"ok");
     }
     b.innerHTML=h;
-    if($("pwForm"))$("pwForm").addEventListener("submit",function(e){ e.preventDefault(); setKey($("pwIn").value.trim()); msg=""; render(); });
+    if($("pwForm"))$("pwForm").addEventListener("submit",function(e){ e.preventDefault(); setKey($("pwIn").value.trim()); msg=""; render(); boot(); });
     if($("bkPick"))$("bkPick").addEventListener("click",loadBanks);
     if($("bkQ")){ $("bkQ").addEventListener("input",renderBankList); renderBankList(); $("bkQ").focus(); }
     if($("bkRefresh"))$("bkRefresh").addEventListener("click",function(){ refresh(true); });
@@ -585,19 +604,19 @@ input{font-family:inherit; color:inherit}
   }
   function renderBankList(){
     var q=norm($("bkQ").value), list=banks.filter(function(b){ return !q||norm(b.name).indexOf(q)>=0; }).slice(0,60), h="";
-    list.forEach(function(b,i){ h+='<button data-i="'+banks.indexOf(b)+'">'+(b.logo?'<img src="'+esc(b.logo)+'" alt="">':'')+'<span>'+esc(b.name)+'</span></button>'; });
+    list.forEach(function(b){ h+='<button data-i="'+banks.indexOf(b)+'">'+(b.logo?'<img src="'+esc(b.logo)+'" alt="">':'')+'<span>'+esc(b.name)+'</span></button>'; });
     $("bkList").innerHTML=h||'<div class="empty" style="padding:10px 12px">Aucune banque trouvée.</div>';
     $("bkList").querySelectorAll("button").forEach(function(btn){ btn.addEventListener("click",function(){ connect(banks[+btn.getAttribute("data-i")]); }); });
   }
   function renderTx(){
-    var card=$("txCard"); if(!bank||!bank.data){ card.hidden=true; return; }
+    var card=$("txCard"); if(!bank||!data){ card.hidden=true; return; }
     var st=App.state(), mo=App.month(), k=st.activeMonth, txs=txsOf(k);
     card.hidden=false;
     $("txTitle").textContent="Transactions de "+App.MO3[(+k.split("-")[1])-1]+" "+k.split("-")[0];
     $("txMeta").textContent=txs.length+" opération"+(txs.length>1?"s":"");
     var out=0, inn=0; txs.forEach(function(t){ if(t.pending)return; if(t.amount<0)out+=-t.amount; else inn+=t.amount; });
     $("txSum").innerHTML='<span>Sorties <b class="num">'+euro(out)+'</b></span><span>Entrées <b class="num">'+euro(inn)+'</b></span>';
-    if(!txs.length){ $("txList").innerHTML='<div class="empty">Aucune transaction pour ce mois dans la période récupérée ('+(bank.data.from||"")+' → '+(bank.data.to||"")+').</div>'; return; }
+    if(!txs.length){ $("txList").innerHTML='<div class="empty">Aucune transaction pour ce mois dans la période récupérée ('+(data.from||"")+' → '+(data.to||"")+').</div>'; return; }
     var byTx={}; (mo.fixed||[]).forEach(function(l){ if(l.paidTx)byTx[l.paidTx]=l; });
     var opts='<option value="">→</option>'; (mo.fixed||[]).forEach(function(l){ opts+='<option value="'+l.id+'">'+esc(l.label)+'</option>'; });
     var h="";
@@ -606,14 +625,14 @@ input{font-family:inherit; color:inherit}
       h+='<div class="tx'+(t.pending?" pend":"")+'" data-tx="'+esc(t.id)+'"><span class="dt">'+d+'</span>'
         +'<span class="tt" title="'+esc(t.text)+'">'+esc(t.text||"—")+(l?'<span class="lk">✓ '+esc(l.label)+'</span>':'')+'</span>'
         +(t.amount<0?'<select class="'+(l?"set":"")+'" aria-label="Associer à une dépense fixe">'+opts.replace('value="'+(l?l.id:"__")+'"','value="'+(l?l.id:"__")+'" selected')+'</select>':'')
-        +'<span class="am num'+(t.amount>=0?" in":"")+'">'+(t.amount>=0?"+":"–")+"\u202F"+euro(Math.abs(t.amount))+'</span></div>';
+        +'<span class="am num'+(t.amount>=0?" in":"")+'">'+(t.amount>=0?"+":"–")+" "+euro(Math.abs(t.amount))+'</span></div>';
     });
     $("txList").innerHTML=h;
     $("txList").querySelectorAll("select").forEach(function(sel){ sel.addEventListener("change",function(){ link(sel.closest("[data-tx]").getAttribute("data-tx"),sel.value); }); });
   }
   // Association manuelle : la ligne retient un mot-clé issu de la transaction pour les mois suivants.
   function link(txId,lineId){
-    var mo=App.month(), txs=txsOf(App.state().activeMonth), t=txs.filter(function(x){return x.id===txId;})[0];
+    var mo=App.month(), t=txsOf(App.state().activeMonth).filter(function(x){return x.id===txId;})[0];
     (mo.fixed||[]).forEach(function(l){ if(l.paidTx===txId){ l.paid=false; delete l.paidTx; } });
     if(lineId&&t){ var l=(mo.fixed||[]).filter(function(x){return x.id===lineId;})[0]; if(l){ l.paid=true; l.paidTx=txId; var ws=words(t.text); if(ws.length)l.match=ws.slice(0,2).join(" "); } }
     App.touched(); App.renderLedger(); App.renderDerived();
@@ -623,41 +642,44 @@ input{font-family:inherit; color:inherit}
   function loadBanks(){ msg=""; status("Chargement…"); api("GET","/api/bank/banks?country=FR").then(function(list){ banks=list; render(); }).catch(function(e){ msg=e.message; render(); }); }
   function connect(b){
     status("Redirection vers "+b.name+"…");
-    var redirect=location.origin+"/";
-    api("POST","/api/bank/auth",{bank:b.name,country:b.country,redirect_url:redirect}).then(function(r){
-      try{ sessionStorage.setItem("cowrie-bank-state",r.state); }catch(e){}
-      location.href=r.url;
-    }).catch(function(e){ msg=e.message; render(); });
+    api("POST","/api/bank/auth",{bank:b.name,country:b.country,redirect_url:location.origin+"/"}).then(function(r){ location.href=r.url; })
+      .catch(function(e){ msg=e.message; render(); });
   }
+  var pendingCode=null;
   function finishAuth(code){
     status("Connexion…");
-    history.replaceState(null,"",location.pathname);
-    api("POST","/api/bank/session",{code:code}).then(function(r){
-      bank={session_id:r.session_id,accounts:r.accounts,valid_until:r.valid_until,data:null}; save(); render(); refresh(true);
-    }).catch(function(e){ msg="Connexion échouée : "+e.message; render(); });
+    api("POST","/api/bank/session",{code:code}).then(function(r){ pendingCode=null; bank=r; data=null; render(); refresh(true); })
+      .catch(function(e){ msg="Connexion échouée : "+e.message; render(); });
   }
   function refresh(force){
     if(!bank||busy)return;
-    if(!force&&bank.data&&Date.now()-new Date(bank.data.fetched_at).getTime()<REFRESH_MS)return;
+    if(!force&&data&&Date.now()-new Date(data.fetched_at).getTime()<6*3600*1000)return;
     busy=true; msg=""; render();
-    var from=new Date(); from.setMonth(from.getMonth()-2); from.setDate(1);
-    var q="?session_id="+encodeURIComponent(bank.session_id)+"&accounts="+encodeURIComponent(bank.accounts.map(function(a){return a.uid;}).join(","))+"&from="+from.toISOString().slice(0,10);
-    api("GET","/api/bank/data"+q).then(function(d){
-      bank.data=d; save(); busy=false;
-      var errs=[]; d.accounts.forEach(function(a){ errs=errs.concat(a.errors||[]); }); if(errs.length)msg=errs[0];
-      var changed=reconcile(); render(); if(changed){ App.renderLedger(); App.renderDerived(); }
-    }).catch(function(e){ busy=false; msg=e.message; if(/session|expir|401|403/i.test(e.message)&&!bank.data){ bank=null; save(); } render(); });
+    api("GET","/api/bank/data"+(force?"?force=1":"")).then(function(d){
+      data=d; busy=false; msg=d.warning||"";
+      if(!msg){ var errs=[]; d.accounts.forEach(function(a){ errs=errs.concat(a.errors||[]); }); if(errs.length)msg=errs[0]; }
+      render(); applyReconcile();
+    }).catch(function(e){ busy=false; msg=e.message; if(/session|expir/i.test(e.message)&&!data){ bank=null; } render(); });
   }
   function disconnect(){
     if(!confirm("Déconnecter la banque ? Les cases déjà cochées restent."))return;
-    var id=bank.session_id; bank=null; save(); render();
-    api("DELETE","/api/bank/session?id="+encodeURIComponent(id)).catch(function(){});
+    bank=null; data=null; render();
+    api("DELETE","/api/bank/session").catch(function(){});
+  }
+  // Charge l'état serveur (budget + banque) une fois le mot de passe connu.
+  function boot(){
+    if(!key())return;
+    syncTxt("Synchronisation…");
+    pull().then(function(){
+      if(pendingCode){ finishAuth(pendingCode); return; }
+      return api("GET","/api/bank/status").then(function(r){ bank=r.bank; data=r.data; render(); applyReconcile(); if(bank)refresh(false); });
+    }).catch(function(e){ msg=e.message; render(); });
   }
 
-  window.Bank={ renderTx:renderTx, reconcile:function(){ if(reconcile()){ App.renderLedger(); App.renderDerived(); } } };
+  window.Bank={ renderTx:renderTx, reconcile:applyReconcile };
   var params=new URLSearchParams(location.search);
-  if(params.get("code")){ render(); finishAuth(params.get("code")); }
-  else{ render(); if(bank){ if(reconcile()){ App.renderLedger(); App.renderDerived(); } refresh(false); } }
+  if(params.get("code")){ pendingCode=params.get("code"); history.replaceState(null,"",location.pathname); }
+  render(); boot();
 })();
 </script>
 </body>
