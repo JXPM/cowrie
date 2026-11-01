@@ -532,7 +532,7 @@ function duePlanned(m) {
 function defaultAcc() { const a = S.state.accounts.find(x => x.kind === "Compte courant") || S.state.accounts[0]; return a ? a.id : ""; }
 function confirmPlanned(m, keys) {
   const due = duePlanned(m).filter(p => keys.includes(p.k)); if (!due.length) return;
-  due.forEach(p => { const t = { id: uid(), type: p.type, amount: p.amount, label: p.label, cat: p.cat, date: p.date, acc: defaultAcc(), plan: p.k }; txOf(m).push(t); applyAcc(t, 1); });
+  due.forEach(p => { const t = { id: uid(), type: p.type, amount: p.amount, label: p.label, cat: p.cat, date: p.date, acc: defaultAcc(), plan: p.k }; const to = accFor(catById(p.cat)); if (to && to !== t.acc) t.to = to; txOf(m).push(t); applyAcc(t, 1); });
   saveTx(m); saveState(); render(); toast(due.length > 1 ? `${due.length} opérations confirmées` : "Opération confirmée");
 }
 function skipPlanned(m, k) { const sk = S.state.skipped = S.state.skipped || {}; (sk[m] = sk[m] || []).push(k); saveState(); render(); toast("Ignorée pour ce mois"); }
@@ -1024,17 +1024,24 @@ function txSheet(id, m, preset) {
     ${t.type !== "in" ? `<div class="field"><label>Catégorie</label><div class="catpick">${cats().map(c => `<button data-cat="${c.id}" aria-pressed="${t.cat === c.id}" style="--c:${c.color}"><i>${icon(c.icon)}</i>${esc(c.name)}</button>`).join("")}<button data-cat="" aria-pressed="${!t.cat}" style="--c:var(--ink-3)"><i>${icon("more")}</i>Autre</button></div></div>` : ""}
     <div class="field"><label for="tx-lbl">Libellé</label><input id="tx-lbl" value="${esc(t.label)}" placeholder="${t.type === "in" ? "Prime, remboursement…" : "Supermarché, taxi…"}"></div>
     <div class="grid2"><div class="field"><label for="tx-date">Date</label><input id="tx-date" type="date" value="${esc(t.date)}"></div>
-    <div class="field"><label for="tx-acc">Compte</label><select id="tx-acc"><option value="">Aucun</option>${S.state.accounts.map(a => `<option value="${a.id}" ${t.acc === a.id ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div></div>
+    <div class="field"><label for="tx-acc">${t.type !== "in" && isSave(catById(t.cat)) ? "Depuis" : "Compte"}</label><select id="tx-acc"><option value="">Aucun</option>${S.state.accounts.map(a => `<option value="${a.id}" ${t.acc === a.id ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div></div>
+    ${t.type !== "in" && isSave(catById(t.cat)) ? `<div class="field"><label for="tx-to">Vers le compte</label><select id="tx-to"><option value="">Aucun</option>${S.state.accounts.map(a => `<option value="${a.id}" ${t.to === a.id ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>
+    <p class="faint" style="font-size:12px;margin:-4px 0 12px">Virement d'épargne : compté comme épargne, pas comme dépense.</p>` : ""}
     ${S.state.accounts.length ? `<p class="faint" style="font-size:12px;margin:-4px 0 12px">Le solde du compte choisi est mis à jour automatiquement.</p>` : ""}
     <button class="btn btn-primary btn-block" id="tx-save">${ex ? "Enregistrer" : t.plan ? "Confirmer" : "Ajouter"}</button>
     ${ex ? `<button class="btn btn-danger btn-block" style="margin-top:8px" id="tx-del">Supprimer</button>` : ""}
     ${!ex && t.plan ? `<button class="btn btn-soft btn-block" style="margin-top:8px" id="tx-skip">Pas ce mois-ci</button>` : ""}`;
     sh.querySelectorAll("[data-t]").forEach(b => b.onclick = () => { t.amount = $("#tx-amt", sh).value; t.label = $("#tx-lbl", sh).value; t.type = b.dataset.t; draw(sh); });
-    sh.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { t.cat = b.dataset.cat; sh.querySelectorAll("[data-cat]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
+    sh.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => {
+      const was = isSave(catById(t.cat)); t.cat = b.dataset.cat; const now = isSave(catById(t.cat));
+      if (was !== now || now) { t.amount = $("#tx-amt", sh).value; t.label = $("#tx-lbl", sh).value; t.date = $("#tx-date", sh).value; t.acc = $("#tx-acc", sh).value; if (now) { t.acc = t.acc && !S.state.accounts.find(a => a.id === t.acc && a.kind === "Investissement") ? t.acc : defaultAcc(); t.to = accFor(catById(t.cat)) || ($("#tx-to", sh)?.value ?? ""); } else t.to = ""; draw(sh); }
+      else sh.querySelectorAll("[data-cat]").forEach(x => x.setAttribute("aria-pressed", x === b));
+    });
     $("#tx-save", sh).onclick = () => {
       const amount = Math.abs(parseNum($("#tx-amt", sh).value)); if (!amount) { toast("Indique un montant"); return; }
       const date = $("#tx-date", sh).value || dk(TODAY), nt = { id: ex ? ex.id : uid(), type: t.type, amount, label: $("#tx-lbl", sh).value.trim(), cat: t.type === "in" ? "" : t.cat, date, acc: $("#tx-acc", sh).value };
       if (t.plan) nt.plan = t.plan; if (t.src) nt.src = t.src;
+      const toSel = $("#tx-to", sh); if (toSel && toSel.value && toSel.value !== nt.acc && nt.type !== "in") nt.to = toSel.value;
       if (ex) { applyAcc(ex, -1); S.tx[m] = txOf(m).filter(x => x.id !== ex.id); saveTx(m); }
       const nm = date.slice(0, 7); txOf(nm).push(nt); applyAcc(nt, 1); saveTx(nm); saveState();
       closeSheet(); render(); toast(ex ? "Opération modifiée" : "Opération ajoutée");
@@ -1045,7 +1052,12 @@ function txSheet(id, m, preset) {
   };
   openSheet("", draw);
 }
-function applyAcc(t, dir) { const a = S.state.accounts.find(x => x.id === t.acc); if (!a) return; a.balance = Math.round((a.balance + dir * (t.type === "in" ? 1 : -1) * t.amount) * 100) / 100; snapshotWealth(); }
+function applyAcc(t, dir) {
+  const mv = (id, sign) => { const a = S.state.accounts.find(x => x.id === id); if (a) a.balance = Math.round((a.balance + dir * sign * t.amount) * 100) / 100; };
+  mv(t.acc, t.type === "in" ? 1 : -1); if (t.to && t.type !== "in") mv(t.to, 1); snapshotWealth();
+}
+/* Compte de destination d'une catégorie d'épargne : celui dont le nom contient le nom de la catégorie (PEA → « PEA Boursorama ») */
+function accFor(c) { if (!isSave(c)) return ""; const n = c.name.toLowerCase().split(" ")[0]; const a = S.state.accounts.find(x => x.name.toLowerCase().includes(n)); return a ? a.id : ""; }
 
 function catSheet(id) {
   const ex = id ? catById(id) : null, c = ex ? { ...ex } : { name: "", icon: "cart", color: COLORS[cats().length % COLORS.length], group: "Vie quotidienne", budget: "", day: null };
