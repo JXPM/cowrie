@@ -367,14 +367,17 @@ const IC = {
   clock: "M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM12 7v5l3 2",
   chart: "M4 20V10M10 20V4M16 20v-7M22 20H2",
   check: "M5 12l5 5 9-10",
+  ai: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z",
   edit: "M4 20h4L19 9l-4-4L4 16zM14 6l4 4",
   more: "M5 12h.01M12 12h.01M19 12h.01",
   cowrie: "M12 3.4a6 8.6 0 1 1 0 17.2 6 8.6 0 0 1 0-17.2zM12 5.6V18.4M9.7 8.6 12 9.3M9.7 11H12M9.7 13.4H12M9.7 15.8 12 15.1M14.3 8.6 12 9.3M14.3 11H12M14.3 13.4H12M14.3 15.8 12 15.1"
 };
 const icon = (n, cls = "ico") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${IC[n] || IC.more}"/></svg>`;
-const ICON_CHOICES = ["home", "car", "cart", "fork", "bag", "tv", "piggy", "plane", "heart", "bolt", "phone", "gift", "book", "health", "sport", "kid", "paw", "coffee", "family", "wallet", "bank"];
+const ICON_CHOICES = ["ai", "trend", "home", "car", "cart", "fork", "bag", "tv", "piggy", "plane", "heart", "bolt", "phone", "gift", "book", "health", "sport", "kid", "paw", "coffee", "family", "wallet", "bank"];
 const COLORS = ["#A8862F", "#6E5BD6", "#3D6FD8", "#2E9E6B", "#D2553F", "#B5459B", "#E08A2E", "#2A9DB0", "#7A8B3B", "#8A5A44", "#C9486E", "#4B5563"];
-const GROUPS = ["Logement", "Vie quotidienne", "Abonnements", "Crédits", "Autres"];
+const GROUPS = ["Logement", "Vie quotidienne", "Abonnements", "Crédits", "Épargne & invest", "Autres"];
+const SAVE_GROUP = "Épargne & invest";
+const isSave = c => !!c && c.group === SAVE_GROUP;
 const ACC_THEMES = {
   onyx: ["#2B2B2E", "#5A5A63"], or: ["#B48A2C", "#E3C46E"], azur: ["#1E4FB8", "#4DA3F0"], rubis: ["#A3202E", "#E2504A"],
   jade: ["#0F6B4F", "#3DBB8A"], lilas: ["#5B3FB8", "#B27BE8"], corail: ["#D9573A", "#F4A35E"], citron: ["#5E8F14", "#B8D73A"], nuit: ["#13213D", "#3B4E80"]
@@ -505,6 +508,9 @@ const GUESS = [
   ["shopping", /zara|h&m|h & m|primark|uniqlo|nike|adidas|zalando|amazon|fnac|darty|decathlon|sephora|action|shein|apple/]
 ];
 function guessCat(lbl) {
+  const byName = cats().find(c => c.name.length > 2 && lbl.includes(c.name.toLowerCase())); if (byName) return byName.id;
+  const ai = cats().find(c => /chatgpt|openai|claude|anthropic|canva|ia\b/i.test(c.name));
+  if (/openai|chatgpt|anthropic|claude|canva|midjourney|perplexity/.test(lbl)) { const c = cats().find(x => lbl.includes(x.name.toLowerCase().split(" ")[0])) || ai; if (c) return c.id; }
   for (const [k, re] of GUESS) if (re.test(lbl)) { const c = cats().find(x => x.name.toLowerCase().startsWith(k.slice(0, 5))); if (c) return c.id; }
   return "";
 }
@@ -517,9 +523,10 @@ function extraIncome(m) { return sum(txOf(m).filter(t => t.type === "in" && !t.p
 /* Opérations prévues (revenus et prélèvements à date fixe) arrivées à échéance et pas encore confirmées */
 function duePlanned(m) {
   const cm = mk(TODAY); if (m > cm) return [];
-  const last = m < cm ? daysIn(m) : TODAY.getDate(), done = new Set(txOf(m).map(t => t.plan).filter(Boolean)), skip = new Set((S.state.skipped || {})[m] || []), out = [];
+  const last = m < cm ? daysIn(m) : TODAY.getDate(), done = new Set(txOf(m).map(t => t.plan).filter(Boolean)),
+    paid = c => txOf(m).some(t => t.type !== "in" && t.cat === c.id && !t.plan && Math.abs(t.amount - c.budget) <= Math.max(c.budget * .25, 2)), skip = new Set((S.state.skipped || {})[m] || []), out = [];
   S.state.income.forEach(i => { const d = Math.min(i.day, daysIn(m)), k = "i:" + i.id; if (d <= last && !done.has(k) && !skip.has(k)) out.push({ k, type: "in", amount: i.amount, label: i.name, cat: "", date: `${m}-${pad(d)}` }); });
-  cats().forEach(c => { const d = catDay(c, m), k = "c:" + c.id; if (d && d <= last && c.budget > 0 && !done.has(k) && !skip.has(k)) out.push({ k, type: "out", amount: c.budget, label: c.name, cat: c.id, date: `${m}-${pad(d)}`, color: c.color, icon: c.icon }); });
+  cats().forEach(c => { const d = catDay(c, m), k = "c:" + c.id; if (d && d <= last && c.budget > 0 && !done.has(k) && !skip.has(k) && !paid(c)) out.push({ k, type: "out", amount: c.budget, label: c.name, cat: c.id, date: `${m}-${pad(d)}`, color: c.color, icon: c.icon }); });
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 function defaultAcc() { const a = S.state.accounts.find(x => x.kind === "Compte courant") || S.state.accounts[0]; return a ? a.id : ""; }
@@ -529,9 +536,10 @@ function confirmPlanned(m, keys) {
   saveTx(m); saveState(); render(); toast(due.length > 1 ? `${due.length} opérations confirmées` : "Opération confirmée");
 }
 function skipPlanned(m, k) { const sk = S.state.skipped = S.state.skipped || {}; (sk[m] = sk[m] || []).push(k); saveState(); render(); toast("Ignorée pour ce mois"); }
-function plannedTotal() { return sum(cats(), c => c.budget); }
+function plannedTotal() { return sum(cats().filter(c => !isSave(c)), c => c.budget); }
+function savePlanned() { return sum(cats().filter(isSave), c => c.budget); }
 function spentByCat(m) { const o = {}; txOf(m).forEach(t => { if (t.type !== "in") o[t.cat || "_"] = (o[t.cat || "_"] || 0) + t.amount; }); return o; }
-function spentTotal(m) { return sum(txOf(m).filter(t => t.type !== "in"), t => t.amount); }
+function spentTotal(m) { return sum(txOf(m).filter(t => t.type !== "in" && !isSave(catById(t.cat))), t => t.amount); }
 function monthFigures(m, mode) {
   const inc = incomePlanned() + (mode === "reel" ? extraIncome(m) : 0);
   const out = mode === "reel" ? spentTotal(m) : plannedTotal();
@@ -584,11 +592,15 @@ function lineChart(series, { w = 340, h = 150, yFmt = v => fmt(v), xLabels = [],
 function sankey() {
   const inc = incomePlanned(); const cs = cats().filter(c => c.budget > 0);
   if (!inc || !cs.length) return `<div class="empty">Ajoute un revenu et des catégories pour voir où part ton argent.</div>`;
-  const groups = GROUPS.map(g => ({ name: g, cats: cs.filter(c => (c.group || "Autres") === g) })).filter(g => g.cats.length);
+  const groups = GROUPS.filter(g => g !== SAVE_GROUP).map(g => ({ name: g, cats: cs.filter(c => (c.group || "Autres") === g) })).filter(g => g.cats.length);
   groups.forEach(g => { g.v = sum(g.cats, c => c.budget); g.c = g.cats.length === 1 ? g.cats[0].color : g.cats.reduce((a, c) => c.budget > a.budget ? c : a).color; });
   const out = sum(groups, g => g.v), save = inc - out;
   const mids = [...groups];
-  if (save > 0) mids.push({ name: "Épargne", v: save, c: "var(--save)", cats: [{ name: "Épargne", budget: save, color: "var(--save)" }] });
+  if (save > 0) {
+    let left = save; const sc = cs.filter(isSave).map(c => { const v = Math.min(c.budget, left); left -= v; return { name: c.name, budget: v, color: c.color }; }).filter(c => c.budget > 0);
+    if (left > 0.5) sc.push({ name: sc.length ? "Reste" : "Épargne", budget: left, color: "var(--save)" });
+    mids.push({ name: "Épargne", v: save, c: "var(--save)", cats: sc });
+  }
   const rights = mids.flatMap(g => g.cats.map(c => ({ name: c.name, v: c.budget, c: c.color, g })));
   const T = Math.max(inc, out);
   const H = Math.max(240, rights.length * 26), gm = 12, gr = 6, nw = 10, x0 = 4, x1 = 140, x2 = 236, W = 430;
@@ -801,9 +813,11 @@ function renderBudget() {
 }
 function budgetMain(m) {
   const mode = S.ui.bmode, f = monthFigures(m, mode), spent = spentByCat(m);
-  const segs = cats().map(c => ({ v: mode === "reel" ? (spent[c.id] || 0) : c.budget, c: c.color }));
+  const segs = cats().filter(c => !isSave(c)).map(c => ({ v: mode === "reel" ? (spent[c.id] || 0) : c.budget, c: c.color }));
   if (mode === "reel" && spent._) segs.push({ v: spent._, c: "var(--ink-3)" });
-  if (f.save > 0) segs.push({ v: f.save, c: "var(--save)" });
+  let svLeft = Math.max(f.save, 0);
+  cats().filter(isSave).forEach(c => { const v = Math.min(mode === "reel" ? (spent[c.id] || 0) : c.budget, svLeft); svLeft -= v; segs.push({ v, c: c.color }); });
+  if (svLeft > 0) segs.push({ v: svLeft, c: "var(--save)" });
   const pct = Math.round(f.pctSave * 100);
   const groups = GROUPS.map(g => ({ g, list: cats().filter(c => (c.group || "Autres") === g) })).filter(x => x.list.length);
   const isCur = m === mk(TODAY);
@@ -854,7 +868,7 @@ function budgetCalendar(m) {
   const inc = f.inc || 1;
   return `<div class="stack" style="margin-top:14px">
     <div class="card"><div class="stat2" style="gap:14px;margin-bottom:12px"><div><span class="eyebrow">Dépenses prévues</span><div class="num" style="font-size:22px;font-weight:700">${esc(fmt(f.out, { dec: false }))} <span class="faint" style="font-size:13px">${Math.round(f.pctOut * 100)} %</span></div></div><div style="text-align:right"><span class="eyebrow">Épargne</span><div class="num" style="font-size:22px;font-weight:700;color:var(--save)">${esc(fmt(f.save, { dec: false }))} <span class="faint" style="font-size:13px">${Math.round(f.pctSave * 100)} %</span></div></div></div>
-      <div class="flowbar">${cats().map(c => `<i style="flex:${c.budget / inc};background:${c.color}" title="${esc(c.name)}"></i>`).join("")}${f.save > 0 ? `<i style="flex:${f.save / inc};background:var(--save)"></i>` : ""}</div></div>
+      <div class="flowbar">${cats().filter(c => !isSave(c)).map(c => `<i style="flex:${c.budget / inc};background:${c.color}" title="${esc(c.name)}"></i>`).join("")}${f.save > 0 ? `<i style="flex:${f.save / inc};background:var(--save)"></i>` : ""}</div></div>
     <div class="card" style="padding:12px"><div class="cal">${cells}</div></div>
   </div>
   <div class="section-h"><h3>Ce mois-ci</h3><span class="faint" style="font-size:12px">dépensé / prévu</span></div>
@@ -865,7 +879,7 @@ function budgetForecast(m) {
   const curM = mk(TODAY), dn = daysIn(m), spent = spentByCat(m);
   const elapsed = m < curM ? dn : m > curM ? 0 : TODAY.getDate();
   const inc = incomePlanned() + extraIncome(m);
-  const rows = cats().map(c => {
+  const rows = cats().filter(c => !isSave(c)).map(c => {
     const s = spent[c.id] || 0; let proj;
     if (elapsed >= dn) proj = s;
     else if (c.day) proj = catDay(c, m) <= elapsed ? Math.max(s, s || c.budget) : Math.max(s, c.budget);
@@ -874,7 +888,7 @@ function budgetForecast(m) {
   });
   const projOut = sum(rows, r => r.proj) + (spent._ || 0), projSave = inc - projOut, planned = plannedTotal();
   const risk = rows.filter(r => r.c.budget > 0 && r.proj > r.c.budget * 1.02).sort((a, b) => (b.proj - b.c.budget) - (a.proj - a.c.budget));
-  const daily = []; let acc = 0; const byDay = {}; txOf(m).forEach(t => { if (t.type !== "in") { const d = +t.date.slice(8, 10); byDay[d] = (byDay[d] || 0) + t.amount; } });
+  const daily = []; let acc = 0; const byDay = {}; txOf(m).forEach(t => { if (t.type !== "in" && !isSave(catById(t.cat))) { const d = +t.date.slice(8, 10); byDay[d] = (byDay[d] || 0) + t.amount; } });
   for (let d = 1; d <= Math.max(elapsed, 1); d++) { acc += byDay[d] || 0; daily.push({ x: d, y: acc }); }
   const projPts = elapsed > 0 && elapsed < dn ? [{ x: elapsed, y: acc }, { x: dn, y: projOut }] : [];
   const chart = lineChart([{ pts: daily, c: "var(--ink)", area: true, dot: elapsed > 0 }, ...(projPts.length ? [{ pts: projPts, c: "var(--gold)", dash: true }] : [])],
@@ -973,7 +987,7 @@ function trajectory() {
 function renderActivite() {
   const m = S.ui.month, list = txOf(m).slice().sort((a, b) => b.date.localeCompare(a.date) || 0), fl = S.ui.afilter;
   const shown = list.filter(t => fl === "all" || (fl === "in" ? t.type === "in" : t.cat === fl));
-  const out = sum(list.filter(t => t.type !== "in"), t => t.amount), inn = sum(list.filter(t => t.type === "in"), t => t.amount);
+  const out = sum(list.filter(t => t.type !== "in" && !isSave(catById(t.cat))), t => t.amount), inn = sum(list.filter(t => t.type === "in"), t => t.amount);
   const days = {}; shown.forEach(t => (days[t.date] = days[t.date] || []).push(t));
   const usedCats = cats().filter(c => list.some(t => t.cat === c.id)), due = duePlanned(m);
   const dueCard = due.length ? `<div class="card" style="margin-top:14px;padding:12px 16px 6px">
