@@ -14,8 +14,7 @@ Application de budget mensuel, 100 % statique (un seul fichier `index.html`), in
 ## Données
 
 - Les données sont enregistrées dans le navigateur (`localStorage`, clé `cowrie.v2`).
-- Synchro entre appareils : dans Patrimoine → Réglages, entre le mot de passe de l'app (`APP_PASSWORD`). Le budget v2 est stocké dans Neon sous la clé `budget-v2` via `/api/state2`. L'ancien budget (clé `budget`) n'est pas touché.
-- L'ancienne version, avec la connexion bancaire Enable Banking, reste accessible sur `/legacy.html`.
+- Synchro entre appareils : dans Patrimoine → Réglages, entre le mot de passe de l'app (`APP_PASSWORD`). Le budget est stocké dans Neon sous la clé `budget-v2` via `/api/state2` (variables `DATABASE_URL` et `APP_PASSWORD`).
 
 ## Déploiement
 

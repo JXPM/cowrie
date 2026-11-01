@@ -1,4 +1,4 @@
-const { handler } = require("../lib/enable");
+const { handler } = require("../lib/auth");
 const store = require("../lib/store");
 
 // Budget partagé entre appareils (Cowrie v2 : {state, tx}). GET → {state, updated_at} ; PUT {state} → enregistre.
