@@ -465,6 +465,23 @@ const srv = {
     if (!this.on()) return; clearTimeout(this.timer);
     this.timer = setTimeout(() => this.api("PUT", { state: { state: S.state, tx: S.tx } }).then(() => this.status = "ok").catch(e => this.status = e.auth ? "auth" : "off"), 800);
   },
+  async inbox() {
+    if (!this.on()) return;
+    try {
+      const r = await fetch("/api/tx", { headers: { "x-app-key": this.key() } }); if (!r.ok) return;
+      const items = (await r.json()).items || []; if (!items.length) return;
+      const have = new Set(Object.values(S.tx).flat().map(t => t.src)), added = [];
+      items.forEach(i => {
+        if (have.has("ap:" + i.id)) return;
+        const m = i.date.slice(0, 7), lbl = (i.label || "").toLowerCase();
+        const prev = Object.values(S.tx).flat().filter(t => t.type !== "in" && t.cat && (t.label || "").toLowerCase() === lbl).pop();
+        const t = { id: uid(), type: "out", amount: i.amount, label: i.label, cat: prev ? prev.cat : guessCat(lbl), date: i.date, acc: defaultAcc(), src: "ap:" + i.id };
+        txOf(m).push(t); applyAcc(t, 1); saveTx(m); added.push(i.id);
+      });
+      if (added.length) { saveState(); render(); toast(added.length > 1 ? `${added.length} paiements Apple Pay ajoutés` : "1 paiement Apple Pay ajouté"); }
+      await fetch("/api/tx", { method: "DELETE", headers: { "Content-Type": "application/json", "x-app-key": this.key() }, body: JSON.stringify({ ids: items.map(i => i.id) }) });
+    } catch (e) { }
+  },
   async pull() {
     if (!this.on()) return;
     try {
@@ -477,14 +494,41 @@ const srv = {
       }
       this.status = "ok";
     } catch (e) { this.status = e.auth ? "auth" : "off"; }
+    if (this.status === "ok") await this.inbox();
   }
 };
+/* Catégorie devinée d'après le commerçant (corrigeable ensuite ; Cowrie réutilise ta correction la fois suivante) */
+const GUESS = [
+  ["courses", /carrefour|lidl|auchan|leclerc|aldi|intermarch|monoprix|franprix|casino|super u|hyper u|picard|grand frais|netto|match|cora|biocoop/],
+  ["restaurants", /uber ?eats|deliveroo|just ?eat|mcdo|mcdonald|kfc|burger|quick|subway|starbucks|domino|pizza|resto|restaurant|boulanger|paul|brioche|sushi|kebab|tacos|caf[eé]/],
+  ["transport", /sncf|ratp|ilevia|il[eé]via|transpole|uber(?! ?eats)|bolt|heetch|blablacar|total|esso|shell|bp |parking|indigo|navigo/],
+  ["shopping", /zara|h&m|h & m|primark|uniqlo|nike|adidas|zalando|amazon|fnac|darty|decathlon|sephora|action|shein|apple/]
+];
+function guessCat(lbl) {
+  for (const [k, re] of GUESS) if (re.test(lbl)) { const c = cats().find(x => x.name.toLowerCase().startsWith(k.slice(0, 5))); if (c) return c.id; }
+  return "";
+}
 const saveState = () => store.save("state");
 const saveTx = m => store.save("tx-" + m);
 
 /* ---------------- Calculations ---------------- */
 function incomePlanned() { return sum(S.state.income, i => i.amount); }
-function extraIncome(m) { return sum(txOf(m).filter(t => t.type === "in"), t => t.amount); }
+function extraIncome(m) { return sum(txOf(m).filter(t => t.type === "in" && !t.plan), t => t.amount); }
+/* Opérations prévues (revenus et prélèvements à date fixe) arrivées à échéance et pas encore confirmées */
+function duePlanned(m) {
+  const cm = mk(TODAY); if (m > cm) return [];
+  const last = m < cm ? daysIn(m) : TODAY.getDate(), done = new Set(txOf(m).map(t => t.plan).filter(Boolean)), skip = new Set((S.state.skipped || {})[m] || []), out = [];
+  S.state.income.forEach(i => { const d = Math.min(i.day, daysIn(m)), k = "i:" + i.id; if (d <= last && !done.has(k) && !skip.has(k)) out.push({ k, type: "in", amount: i.amount, label: i.name, cat: "", date: `${m}-${pad(d)}` }); });
+  cats().forEach(c => { const d = catDay(c, m), k = "c:" + c.id; if (d && d <= last && c.budget > 0 && !done.has(k) && !skip.has(k)) out.push({ k, type: "out", amount: c.budget, label: c.name, cat: c.id, date: `${m}-${pad(d)}`, color: c.color, icon: c.icon }); });
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+function defaultAcc() { const a = S.state.accounts.find(x => x.kind === "Compte courant") || S.state.accounts[0]; return a ? a.id : ""; }
+function confirmPlanned(m, keys) {
+  const due = duePlanned(m).filter(p => keys.includes(p.k)); if (!due.length) return;
+  due.forEach(p => { const t = { id: uid(), type: p.type, amount: p.amount, label: p.label, cat: p.cat, date: p.date, acc: defaultAcc(), plan: p.k }; txOf(m).push(t); applyAcc(t, 1); });
+  saveTx(m); saveState(); render(); toast(due.length > 1 ? `${due.length} opérations confirmées` : "Opération confirmée");
+}
+function skipPlanned(m, k) { const sk = S.state.skipped = S.state.skipped || {}; (sk[m] = sk[m] || []).push(k); saveState(); render(); toast("Ignorée pour ce mois"); }
 function plannedTotal() { return sum(cats(), c => c.budget); }
 function spentByCat(m) { const o = {}; txOf(m).forEach(t => { if (t.type !== "in") o[t.cat || "_"] = (o[t.cat || "_"] || 0) + t.amount; }); return o; }
 function spentTotal(m) { return sum(txOf(m).filter(t => t.type !== "in"), t => t.amount); }
@@ -931,11 +975,20 @@ function renderActivite() {
   const shown = list.filter(t => fl === "all" || (fl === "in" ? t.type === "in" : t.cat === fl));
   const out = sum(list.filter(t => t.type !== "in"), t => t.amount), inn = sum(list.filter(t => t.type === "in"), t => t.amount);
   const days = {}; shown.forEach(t => (days[t.date] = days[t.date] || []).push(t));
-  const usedCats = cats().filter(c => list.some(t => t.cat === c.id));
+  const usedCats = cats().filter(c => list.some(t => t.cat === c.id)), due = duePlanned(m);
+  const dueCard = due.length ? `<div class="card" style="margin-top:14px;padding:12px 16px 6px">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:2px"><span class="eyebrow">À confirmer · ${due.length}</span>${due.length > 1 ? `<button class="chip-btn" data-a="confirmAll">Tout confirmer</button>` : ""}</div>
+    ${due.map(p => `<div class="tx" style="grid-template-columns:auto 1fr auto auto auto"><span class="chip-ico" style="--c:${p.type === "in" ? "var(--save)" : p.color}">${icon(p.type === "in" ? "wallet" : p.icon)}</span>
+      <span style="min-width:0"><div class="lb">${esc(p.label)}</div><div class="meta">Prévu le ${+p.date.slice(8)}</div></span>
+      <span class="v ${p.type === "in" ? "in" : ""}">${p.type === "in" ? "+" : "−"}${esc(fmt(p.amount))}</span>
+      <button class="chip-btn" data-a="planEdit" data-k="${p.k}" aria-label="Modifier le montant">${icon("edit")}</button>
+      <button class="chip-btn" data-a="planOk" data-k="${p.k}" aria-label="Confirmer" style="background:var(--save-soft);color:var(--save)">${icon("check")}</button></div>`).join("")}
+    <p class="faint" style="font-size:12px;margin:6px 0 4px">✓ si c'est passé. Le crayon pour changer le montant ou l'ignorer ce mois-ci.</p></div>` : "";
   return `<div class="top"><h1>Activité</h1></div>
   <div class="card" style="padding:12px 14px"><div class="monthnav" style="margin:0"><button data-a="month" data-d="-1" style="color:var(--ink-3)">${icon("left")}</button><b style="font-family:var(--font-d);font-size:17px">${esc(monthLong(m))}</b><button data-a="month" data-d="1" style="color:var(--ink-3)">${icon("right")}</button></div>
-    <div class="stat2" style="margin-top:8px"><div><span class="eyebrow">Sorties</span><div class="num" style="font-size:22px;font-weight:700">−${esc(fmt(out, { dec: false }))}</div></div><div style="text-align:right"><span class="eyebrow">Entrées ponctuelles</span><div class="num" style="font-size:22px;font-weight:700;color:var(--save)">+${esc(fmt(inn, { dec: false }))}</div></div></div></div>
+    <div class="stat2" style="margin-top:8px"><div><span class="eyebrow">Sorties</span><div class="num" style="font-size:22px;font-weight:700">−${esc(fmt(out, { dec: false }))}</div></div><div style="text-align:right"><span class="eyebrow">Entrées</span><div class="num" style="font-size:22px;font-weight:700;color:var(--save)">+${esc(fmt(inn, { dec: false }))}</div></div></div></div>
   <div class="chips" style="margin:14px 0 4px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px"><button class="chip-btn" data-a="afilter" data-k="all" aria-pressed="${fl === "all"}">Tout</button><button class="chip-btn" data-a="afilter" data-k="in" aria-pressed="${fl === "in"}">Entrées</button>${usedCats.map(c => `<button class="chip-btn" style="white-space:nowrap" data-a="afilter" data-k="${c.id}" aria-pressed="${fl === c.id}">${esc(c.name)}</button>`).join("")}</div>
+  ${dueCard}
   ${shown.length ? Object.keys(days).sort().reverse().map(d => `<div class="tx-day">${esc(dayLabel(d))}</div><div class="card" style="padding:2px 16px">${days[d].map(txRow).join("")}</div>`).join("")
       : `<div class="card empty" style="margin-top:12px">${icon("swap")}<p style="margin:0">Aucune opération ${fl === "all" ? "ce mois-ci" : "pour ce filtre"}. Appuie sur + pour noter une dépense.</p></div>`}`;
 }
@@ -946,12 +999,12 @@ function txRow(t) {
 }
 
 /* ---------------- Sheets / forms ---------------- */
-function txSheet(id, m) {
+function txSheet(id, m, preset) {
   const ex = id ? txOf(m).find(t => t.id === id) : null;
-  const t = ex ? { ...ex } : { type: "out", amount: "", label: "", cat: cats()[0]?.id || "", date: S.ui.presetDate || (S.ui.month === mk(TODAY) ? dk(TODAY) : S.ui.month + "-01"), acc: "" };
+  const t = ex ? { ...ex } : preset ? { ...preset, acc: defaultAcc() } : { type: "out", amount: "", label: "", cat: cats()[0]?.id || "", date: S.ui.presetDate || (S.ui.month === mk(TODAY) ? dk(TODAY) : S.ui.month + "-01"), acc: "" };
   S.ui.presetDate = null;
   const draw = sh => {
-    sh.innerHTML = `<div class="grab"></div><h3>${ex ? "Modifier l'opération" : "Nouvelle opération"}</h3>
+    sh.innerHTML = `<div class="grab"></div><h3>${ex ? "Modifier l'opération" : t.plan ? "Confirmer l'opération" : "Nouvelle opération"}</h3>
     <div class="seg" style="margin-bottom:10px"><button data-t="out" aria-pressed="${t.type !== "in"}">Dépense</button><button data-t="in" aria-pressed="${t.type === "in"}">Revenu</button></div>
     <div class="big-amount"><input id="tx-amt" inputmode="decimal" placeholder="0" value="${esc(t.amount)}" aria-label="Montant" autofocus><span>${curSym()}</span></div>
     ${t.type !== "in" ? `<div class="field"><label>Catégorie</label><div class="catpick">${cats().map(c => `<button data-cat="${c.id}" aria-pressed="${t.cat === c.id}" style="--c:${c.color}"><i>${icon(c.icon)}</i>${esc(c.name)}</button>`).join("")}<button data-cat="" aria-pressed="${!t.cat}" style="--c:var(--ink-3)"><i>${icon("more")}</i>Autre</button></div></div>` : ""}
@@ -959,17 +1012,20 @@ function txSheet(id, m) {
     <div class="grid2"><div class="field"><label for="tx-date">Date</label><input id="tx-date" type="date" value="${esc(t.date)}"></div>
     <div class="field"><label for="tx-acc">Compte</label><select id="tx-acc"><option value="">Aucun</option>${S.state.accounts.map(a => `<option value="${a.id}" ${t.acc === a.id ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div></div>
     ${S.state.accounts.length ? `<p class="faint" style="font-size:12px;margin:-4px 0 12px">Le solde du compte choisi est mis à jour automatiquement.</p>` : ""}
-    <button class="btn btn-primary btn-block" id="tx-save">${ex ? "Enregistrer" : "Ajouter"}</button>
-    ${ex ? `<button class="btn btn-danger btn-block" style="margin-top:8px" id="tx-del">Supprimer</button>` : ""}`;
+    <button class="btn btn-primary btn-block" id="tx-save">${ex ? "Enregistrer" : t.plan ? "Confirmer" : "Ajouter"}</button>
+    ${ex ? `<button class="btn btn-danger btn-block" style="margin-top:8px" id="tx-del">Supprimer</button>` : ""}
+    ${!ex && t.plan ? `<button class="btn btn-soft btn-block" style="margin-top:8px" id="tx-skip">Pas ce mois-ci</button>` : ""}`;
     sh.querySelectorAll("[data-t]").forEach(b => b.onclick = () => { t.amount = $("#tx-amt", sh).value; t.label = $("#tx-lbl", sh).value; t.type = b.dataset.t; draw(sh); });
     sh.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { t.cat = b.dataset.cat; sh.querySelectorAll("[data-cat]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
     $("#tx-save", sh).onclick = () => {
       const amount = Math.abs(parseNum($("#tx-amt", sh).value)); if (!amount) { toast("Indique un montant"); return; }
       const date = $("#tx-date", sh).value || dk(TODAY), nt = { id: ex ? ex.id : uid(), type: t.type, amount, label: $("#tx-lbl", sh).value.trim(), cat: t.type === "in" ? "" : t.cat, date, acc: $("#tx-acc", sh).value };
+      if (t.plan) nt.plan = t.plan; if (t.src) nt.src = t.src;
       if (ex) { applyAcc(ex, -1); S.tx[m] = txOf(m).filter(x => x.id !== ex.id); saveTx(m); }
       const nm = date.slice(0, 7); txOf(nm).push(nt); applyAcc(nt, 1); saveTx(nm); saveState();
       closeSheet(); render(); toast(ex ? "Opération modifiée" : "Opération ajoutée");
     };
+    if (!ex && t.plan) $("#tx-skip", sh).onclick = () => { closeSheet(); skipPlanned(m, t.plan); };
     if (ex) $("#tx-del", sh).onclick = () => { applyAcc(ex, -1); S.tx[m] = txOf(m).filter(x => x.id !== ex.id); saveTx(m); saveState(); closeSheet(); render(); toast("Opération supprimée"); };
     setTimeout(() => $("#tx-amt", sh)?.focus(), 250);
   };
@@ -1103,6 +1159,7 @@ function settingsSheet() {
     <p class="faint" style="font-size:12px;margin:0 0 14px">${store.mode === "db" ? "Tes données sont enregistrées dans ton compte et restent privées." : srv.on() && srv.status === "ok" ? "Tes données sont synchronisées entre tes appareils." : "Tes données sont enregistrées sur cet appareil."}</p>
     ${srv.avail() ? `<div class="field"><label for="s-key">Synchro entre appareils (mot de passe de l'app)</label><div class="row"><input id="s-key" type="password" autocomplete="current-password" value="${esc(srv.key())}" style="flex:1"><button class="btn btn-soft btn-sm" id="s-sync" style="height:46px">${srv.key() ? "Synchroniser" : "Connecter"}</button></div>
       <p class="faint" id="s-syncmsg" style="font-size:12px;margin:2px 0 0">${srv.status === "auth" ? "Mot de passe incorrect." : srv.status === "off" ? "Serveur injoignable, données gardées sur cet appareil." : srv.status === "ok" ? "Synchronisé." : "Le mot de passe défini sur le serveur (APP_PASSWORD)."}</p></div>` : ""}
+    ${srv.avail() ? `<div class="field"><label>Paiements Apple Pay automatiques</label><p class="faint" style="font-size:12px;margin:0">Dans Raccourcis, l'automatisation « Transaction » envoie chaque paiement à :<br><b style="user-select:all">${esc(location.origin)}/api/tx</b><br>avec l'en-tête <b>x-app-key</b> = ton mot de passe. Les paiements arrivent dans Activité à l'ouverture de l'app.</p></div>` : ""}
     <div class="stack" style="gap:8px"><button class="btn btn-soft btn-block" id="s-redo">Refaire la configuration du budget</button><button class="btn btn-danger btn-block" id="s-reset">Tout effacer</button></div>`, sh => {
     $("#s-cur", sh).onchange = e => { S.state.currency = e.target.value; saveState(); render(); };
     const sb = $("#s-sync", sh); if (sb) sb.onclick = async () => { srv.setKey($("#s-key", sh).value.trim()); $("#s-syncmsg", sh).textContent = "Synchronisation…"; await srv.pull(); $("#s-syncmsg", sh).textContent = srv.status === "ok" ? "Synchronisé." : srv.status === "auth" ? "Mot de passe incorrect." : "Serveur injoignable, données gardées sur cet appareil."; if (srv.status === "ok") render(); };
@@ -1126,7 +1183,11 @@ const A = {
   period: d => { S.ui.period = d.k; render(); },
   afilter: d => { S.ui.afilter = d.k; render(); },
   toggleTilt: () => { S.state.prefs.tilt = !S.state.prefs.tilt; saveState(); render(); },
-  addTx: d => txSheet(d.id, d.m), editCat: d => catSheet(d.id), editIncome: d => incomeSheet(d.id), editAcc: d => accSheet(d.id),
+  addTx: d => txSheet(d.id, d.m),
+  planOk: d => confirmPlanned(S.ui.month, [d.k]),
+  confirmAll: () => confirmPlanned(S.ui.month, duePlanned(S.ui.month).map(p => p.k)),
+  planEdit: d => { const p = duePlanned(S.ui.month).find(x => x.k === d.k); if (p) txSheet(null, S.ui.month, { type: p.type, amount: p.amount, label: p.label, cat: p.cat, date: p.date, plan: p.k }); },
+  editCat: d => catSheet(d.id), editIncome: d => incomeSheet(d.id), editAcc: d => accSheet(d.id),
   editGoal: d => goalSheet(d.id), goalDetail: d => goalDetail(d.id), contrib: d => contribSheet(d.id), editCredit: d => creditSheet(d.id),
   dayDetail: d => dayDetail(d.d), settings: () => settingsSheet(), closeSheet: () => closeSheet(),
   resetAll: () => confirmSheet("Effacer l'exemple ?", "Les données d'exemple seront supprimées et tu pourras saisir ton propre budget.", "Commencer", resetAll),

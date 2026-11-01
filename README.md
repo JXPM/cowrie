@@ -9,6 +9,8 @@ Application de budget mensuel, 100 % statique (un seul fichier `index.html`), in
 - **Patrimoine** : comptes affichés en cartes (courant, livret, Mobile Money…), total, courbe d'évolution et répartition.
 - **Objectifs** : cartes illustrées avec effet 3D (paysage ou photo), versements, crédits et trajectoire d'épargne.
 - **Activité** : dépenses et revenus du mois, avec filtres. Le solde du compte choisi se met à jour automatiquement.
+  - **À confirmer** : les revenus et prélèvements à date fixe arrivés à échéance s'affichent ; ✓ pour les confirmer, crayon pour changer le montant ou les ignorer ce mois-ci.
+  - **Paiements Apple Pay** : l'automatisation Raccourcis « Transaction » envoie chaque paiement à `POST /api/tx` (en-tête `x-app-key`, corps JSON `{amount, merchant, card}`). L'app les importe à l'ouverture et devine la catégorie d'après le commerçant.
 - Devises : €, FCFA, $, $ CA. Thème clair et sombre.
 
 ## Données
