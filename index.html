@@ -452,21 +452,27 @@ const store = {
 };
 /* Synchro serveur (déploiement Vercel : /api/state2, même mot de passe que l'ancienne version) */
 const srv = {
-  status: "", timer: null,
+  status: "", timer: null, who: null,
+  /* who : compte confirmé par le serveur pendant cette session. Tant qu'il est inconnu, rien n'est envoyé. */
   avail() { return !window.claude && /^https?:$/.test(location.protocol); },
   key() { try { return localStorage.getItem("cowrie-key") || ""; } catch (e) { return ""; } },
-  setKey(k) { try { k ? localStorage.setItem("cowrie-key", k) : localStorage.removeItem("cowrie-key"); } catch (e) { } },
+  setKey(k) { this.who = null; clearTimeout(this.timer); try { k ? localStorage.setItem("cowrie-key", k) : localStorage.removeItem("cowrie-key"); } catch (e) { } },
+  /* Compte à qui appartiennent les données de cet appareil (cowrie.v2) */
+  user() { try { return localStorage.getItem("cowrie-user") || ""; } catch (e) { return ""; } },
+  setUser(u) { try { localStorage.setItem("cowrie-user", u); } catch (e) { } },
+  body() { const b = { state: { state: S.state, tx: S.tx } }; if (this.who && this.who !== "?") b.user = this.who; return b; },
   on() { return this.avail() && !!this.key(); },
+  okMsg() { return this.who && this.who !== "?" ? `Synchronisé. Connecté en tant que ${this.who}.` : "Synchronisé."; },
   async api(method, body) {
     const r = await fetch("/api/state2", { method, headers: { "Content-Type": "application/json", "x-app-key": this.key() }, body: body ? JSON.stringify(body) : undefined });
     const t = await r.text(); let d = {}; try { d = t ? JSON.parse(t) : {}; } catch (e) { d = { error: t }; }
-    if (r.status === 401) throw Object.assign(new Error("Mot de passe incorrect"), { auth: true });
+    if (r.status === 401) { this.who = null; throw Object.assign(new Error("Mot de passe incorrect"), { auth: true }); }
     if (!r.ok) throw new Error(d.error || "Erreur " + r.status);
     return d;
   },
   push() {
-    if (!this.on()) return; clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.api("PUT", { state: { state: S.state, tx: S.tx } }).then(() => this.status = "ok").catch(e => this.status = e.auth ? "auth" : "off"), 800);
+    if (!this.on() || !this.who) return; clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.api("PUT", this.body()).then(() => this.status = "ok").catch(e => this.status = e.auth ? "auth" : "off"), 800);
   },
   async inbox() {
     if (!this.on()) return;
@@ -489,11 +495,23 @@ const srv = {
     if (!this.on()) return;
     try {
       const r = await this.api("GET"), remote = r.state;
+      if (r.user) {
+        /* Anti-mélange : les données locales appartiennent-elles à ce compte ? Si non, on ne les envoie jamais. */
+        const mine = this.user(), other = mine ? mine !== r.user : (!r.owner && S.state.onboarded);
+        if (other) {
+          const ok = confirm(`Cet appareil contient les données ${mine ? "du compte « " + mine + " »" : "d'un autre compte"}.\n\nOK : les remplacer ici par celles du compte « ${r.user} » (les données de l'autre compte restent sur le serveur).\nAnnuler : ne pas se connecter et garder les données actuelles.`);
+          if (!ok) { this.setKey(""); this.status = "cancel"; return; }
+          S.state = remote && remote.state ? Object.assign(blank(), remote.state) : blank(); S.tx = (remote && remote.tx) || {};
+          this.setUser(r.user); this.who = r.user; store.writeLocal(); this.status = "ok"; render();
+          await this.inbox(); return;
+        }
+        this.setUser(r.user); this.who = r.user;
+      } else this.who = "?"; /* ancien serveur sans comptes : comportement d'avant */
       if (remote && remote.state && (remote.state.updatedAt || 0) > (S.state.updatedAt || 0)) {
         S.state = Object.assign(blank(), remote.state); S.tx = remote.tx || {}; store.writeLocal();
         if (!$("#layer").innerHTML && !(S.ob && S.ob.step > 0)) render();
       } else if (S.state.onboarded && (!remote || (S.state.updatedAt || 0) > (remote.state?.updatedAt || 0))) {
-        await this.api("PUT", { state: { state: S.state, tx: S.tx } });
+        await this.api("PUT", this.body());
       }
       this.status = "ok";
     } catch (e) { this.status = e.auth ? "auth" : "off"; }
@@ -1184,11 +1202,11 @@ function settingsSheet() {
     <p class="faint" style="font-size:12px;margin:-4px 0 14px">Changer de devise ne convertit pas les montants déjà saisis.</p>
     <p class="faint" style="font-size:12px;margin:0 0 14px">${store.mode === "db" ? "Tes données sont enregistrées dans ton compte et restent privées." : srv.on() && srv.status === "ok" ? "Tes données sont synchronisées entre tes appareils." : "Tes données sont enregistrées sur cet appareil."}</p>
     ${srv.avail() ? `<div class="field"><label for="s-key">Synchro entre appareils (mot de passe de l'app)</label><div class="row"><input id="s-key" type="password" autocomplete="current-password" value="${esc(srv.key())}" style="flex:1"><button class="btn btn-soft btn-sm" id="s-sync" style="height:46px">${srv.key() ? "Synchroniser" : "Connecter"}</button></div>
-      <p class="faint" id="s-syncmsg" style="font-size:12px;margin:2px 0 0">${srv.status === "auth" ? "Mot de passe incorrect." : srv.status === "off" ? "Serveur injoignable, données gardées sur cet appareil." : srv.status === "ok" ? "Synchronisé." : "Le mot de passe défini sur le serveur (APP_PASSWORD)."}</p></div>` : ""}
+      <p class="faint" id="s-syncmsg" style="font-size:12px;margin:2px 0 0">${srv.status === "auth" ? "Mot de passe incorrect." : srv.status === "off" ? "Serveur injoignable, données gardées sur cet appareil." : srv.status === "ok" ? srv.okMsg() : srv.status === "cancel" ? "Connexion annulée, données de cet appareil conservées." : "Ton mot de passe personnel, défini sur le serveur."}</p></div>` : ""}
     ${srv.avail() ? `<div class="field"><label>Paiements Apple Pay automatiques</label><p class="faint" style="font-size:12px;margin:0">Dans Raccourcis, l'automatisation « Transaction » envoie chaque paiement à :<br><b style="user-select:all">${esc(location.origin)}/api/tx</b><br>avec l'en-tête <b>x-app-key</b> = ton mot de passe. Les paiements arrivent dans Activité à l'ouverture de l'app.</p></div>` : ""}
     <div class="stack" style="gap:8px"><button class="btn btn-soft btn-block" id="s-redo">Refaire la configuration du budget</button><button class="btn btn-danger btn-block" id="s-reset">Tout effacer</button></div>`, sh => {
     $("#s-cur", sh).onchange = e => { S.state.currency = e.target.value; saveState(); render(); };
-    const sb = $("#s-sync", sh); if (sb) sb.onclick = async () => { srv.setKey($("#s-key", sh).value.trim()); $("#s-syncmsg", sh).textContent = "Synchronisation…"; await srv.pull(); $("#s-syncmsg", sh).textContent = srv.status === "ok" ? "Synchronisé." : srv.status === "auth" ? "Mot de passe incorrect." : "Serveur injoignable, données gardées sur cet appareil."; if (srv.status === "ok") render(); };
+    const sb = $("#s-sync", sh); if (sb) sb.onclick = async () => { srv.setKey($("#s-key", sh).value.trim()); $("#s-syncmsg", sh).textContent = "Synchronisation…"; await srv.pull(); $("#s-syncmsg", sh).textContent = srv.status === "ok" ? srv.okMsg() : srv.status === "cancel" ? "Connexion annulée, données de cet appareil conservées." : srv.status === "auth" ? "Mot de passe incorrect." : "Serveur injoignable, données gardées sur cet appareil."; if (srv.status === "ok") render(); };
     $("#s-redo", sh).onclick = () => { closeSheet(); S.state.onboarded = false; obInit(); S.ob.step = 1; S.ob.salary = String(incomePlanned() || ""); render(); };
     $("#s-reset", sh).onclick = () => confirmSheet("Tout effacer ?", "Budget, comptes, objectifs et opérations seront supprimés. Impossible de revenir en arrière.", "Tout effacer", resetAll);
   });
