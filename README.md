@@ -52,6 +52,10 @@ Chaque personne a son mot de passe et ses propres données. Personne ne voit les
 2. Ensuite seulement, fusionner la branche `comptes-separes` dans `main` : le déploiement prend les nouvelles variables.
 3. Vérifier : sur ton téléphone, Réglages affiche « Connecté en tant que johan » et ton budget est intact.
 
+Deux règles à respecter :
+- Un mot de passe différent pour chaque personne (deux comptes avec le même mot de passe : le second est refusé).
+- Le compte propriétaire s'écrit exactement `johan` (en minuscules). Ne crée pas `APP_OWNER` et ne la change jamais : elle désigne qui possède le budget historique.
+
 Retour arrière : annuler la fusion sur `main` (git revert) ; l'ancien code relit `APP_PASSWORD` et la clé `budget-v2`, intactes. Supprimer `APP_USERS` suffit aussi à revenir au mot de passe unique avec le nouveau code. Les clés `budget-v2:<nom>` restent dans la table sans gêner.
 
 ## Déploiement

@@ -243,3 +243,16 @@ test("résumé : budget vide ou malformé ne plante pas", () => {
   const t = computeSummary({ state: { income: "x", accounts: [null, { balance: "abc" }] }, tx: { "2026-06": "x" } }, null, new Date("2026-06-15T12:00:00Z"));
   assert.equal(t.accountsTotal, 0);
 });
+
+test("deux comptes avec le même mot de passe : le second est refusé et signalé", () => {
+  const { users, warnings } = auth.parseUsers({ APP_USERS: "johan:mot-de-passe-identique,soeur:mot-de-passe-identique" });
+  assert.deepEqual(users.map(u => u.name), ["johan"]);
+  assert.ok(warnings.some(w => w.includes("mot de passe déjà utilisé")));
+  assert.ok(!warnings.join(" ").includes("mot-de-passe-identique"), "le mot de passe ne doit jamais apparaître dans les journaux");
+});
+
+test("propriétaire absent d'APP_USERS : avertissement explicite", () => {
+  const { users, warnings } = auth.parseUsers({ APP_USERS: "Johan:mot-de-passe-long-1,jo:mot-de-passe-long-2" });
+  assert.ok(users.every(u => !u.owner));
+  assert.ok(warnings.some(w => w.includes("propriétaire")));
+});
