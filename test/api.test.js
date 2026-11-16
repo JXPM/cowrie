@@ -202,7 +202,7 @@ test("résumé : calcul sur un état fictif, sans données brutes", async () => 
   const state = {
     currency: "EUR",
     income: [{ id: "a", name: "Salaire", amount: 2000, day: 27 }, { id: "b", name: "Prime", amount: "150.5", day: 5 }],
-    cats: [{ id: "courses", group: "Vie quotidienne" }, { id: "livret", group: "Épargne & invest" }],
+    cats: [{ id: "courses", name: "Courses", group: "Vie quotidienne", color: "#1a2b3c", budget: 300 }, { id: "livret", name: "Livret", group: "Épargne & invest", color: "red;background:url(x)", budget: 200 }],
     accounts: [{ id: "x", name: "Courant", kind: "Compte courant", balance: 1200.1 }, { id: "y", name: "Livret A", balance: 3000.2 }],
     goals: [{ name: "Voyage", target: 1000, saved: 250, scene: "aube" }, { name: "Fini", target: 100, saved: 150 }, { name: "Vide", target: 0, saved: 0 }]
   };
@@ -229,6 +229,12 @@ test("résumé : calcul sur un état fictif, sans données brutes", async () => 
       { name: "Fini", target: 100, saved: 150, percent: 100 },
       { name: "Vide", target: 0, saved: 0, percent: 0 }
     ],
+    categories: [
+      { name: "Courses", group: "Vie quotidienne", color: "#1a2b3c", budget: 300, spent: 40, saving: false },
+      { name: "Livret", group: "Épargne & invest", color: null, budget: 200, spent: 300, saving: true }
+    ],
+    uncategorizedSpent: 10.25,
+    savingsRate: 98,
     updatedAt: "2026-11-30T20:00:00.000Z"
   });
   const txt = JSON.stringify(s);

@@ -39,7 +39,7 @@ Chaque personne a son mot de passe et ses propres données. Personne ne voit les
 
 - `SUMMARY_KEY` : 32 caractères au moins et différente de tout mot de passe, sinon la route répond 404. Générer une clé :
   `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`
-- Réponse : `month` (AAAA-MM à Paris), `currency`, `incomePlanned`, `spentThisMonth`, `remaining`, `accountsTotal`, `accounts` (`name`, `balance`), `goals` (`name`, `target`, `saved`, `percent`), `updatedAt`. Aucune opération ni note.
+- Réponse : `month` (AAAA-MM à Paris), `currency`, `incomePlanned`, `spentThisMonth`, `remaining`, `accountsTotal`, `accounts` (`name`, `balance`), `goals` (`name`, `target`, `saved`, `percent`), `categories` (`name`, `group`, `color`, `budget`, `spent`, `saving`), `uncategorizedSpent`, `savingsRate`, `updatedAt`. Montants agrégés seulement : aucune opération, aucun commerçant, aucune note. La couleur n'est transmise que sous la forme `#rrggbb` ou `var(--nom)`.
 - Calcul (comme l'écran Budget en mode réel) : `incomePlanned` = somme des revenus prévus ; `spentThisMonth` = sorties du mois courant hors catégories « Épargne & invest » ; `remaining` = `incomePlanned - spentThisMonth` (les revenus ponctuels ne sont pas comptés) ; `percent` borné entre 0 et 100.
 
 ## Tests
