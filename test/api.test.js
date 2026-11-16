@@ -223,7 +223,7 @@ test("résumé : calcul sur un état fictif, sans données brutes", async () => 
     spentThisMonth: 50.25,
     remaining: 2100.25,
     accountsTotal: 4200.3,
-    accounts: [{ name: "Courant", balance: 1200.1 }, { name: "Livret A", balance: 3000.2 }],
+    accounts: [{ name: "Courant", kind: "Compte courant", balance: 1200.1 }, { name: "Livret A", kind: null, balance: 3000.2 }],
     goals: [
       { name: "Voyage", target: 1000, saved: 250, percent: 25 },
       { name: "Fini", target: 100, saved: 150, percent: 100 },
