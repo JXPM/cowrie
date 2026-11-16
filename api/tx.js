@@ -1,11 +1,12 @@
-const { handler } = require("../lib/auth");
+const { handler, inboxKey } = require("../lib/auth");
 const store = require("../lib/store");
 
 // Boîte de réception des paiements envoyés par Raccourcis iOS (automatisation « Transaction » de Cartes).
 // POST {amount, merchant, card?, date?}   → ajoute une opération en attente
 // GET                                       → liste les opérations en attente (l'app les importe)
 // DELETE {ids: [...]}                       → retire les opérations déjà importées
-const KEY = "inbox-v1";
+// Chaque personne a sa boîte : « inbox-v1 » pour le propriétaire, « inbox-v1:<nom> » pour les autres,
+// choisie d'après le mot de passe envoyé (x-app-key), jamais d'après la requête.
 
 // Montant envoyé par Raccourcis : "12,50 €", "1 234,56", "-8.90"…
 function parseAmount(v) {
@@ -21,7 +22,8 @@ function parisDate(d = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 }
 
-module.exports = handler(async (req, res) => {
+module.exports = handler(async (req, res, user) => {
+  const KEY = inboxKey(user);
   const row = await store.get(KEY);
   const items = (row && Array.isArray(row.v)) ? row.v : [];
 
